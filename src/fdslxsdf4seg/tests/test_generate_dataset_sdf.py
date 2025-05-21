@@ -86,22 +86,34 @@ def test_cylinder_sdf(
 
 
 @pytest.mark.parametrize(
-    "major_r, minor_r, point",
+    "center, major, minor, point, expected",
     [
-        (4.0, 1.0, (8, 8, 8 + 4.0 + 1.0)),  # 外側にある点
+        # On the torus surface: For a torus defined by center (8,8,8), major radius 4 and minor radius 1
+        # using SDF formula: sqrt((sqrt((x-cx)^2+(y-cy)^2)-major)^2+(z-cz)^2)-minor,
+        # a point with (x,y,z) = (13,8,8) gives: sqrt((5-4)**2+0)-1 = 0 (surface)
+        ((8, 8, 8), 4.0, 1.0, (8, 8, 13), 0.0),
+        # Inside: shifting slightly toward the center of the torus tube gives a negative SDF.
+        ((8, 8, 8), 4.0, 1.0, (8, 8, 12), "inside"),
+        # Outside: picking a point further out yields a positive SDF.
+        ((8, 8, 8), 4.0, 1.0, (8, 8, 15), "outside"),
     ],
 )
-def test_torus_sdf_positive(major_r, minor_r, point):
-    tor = Torus(
-        grid_size, device, center=(8, 8, 8), major_r=major_r, minor_r=minor_r, axis=2
+def test_torus_sdf(center, major, minor, point, expected):
+    torus = Torus(
+        grid_size, device, center=center, major_radius=major, minor_radius=minor
     )
     z, y, x = point
-    val = tor.sdf(
+    val = torus.sdf(
         torch.tensor(z, dtype=torch.float32),
         torch.tensor(y, dtype=torch.float32),
         torch.tensor(x, dtype=torch.float32),
     ).item()
-    assert val > 0
+    if expected == "inside":
+        assert val < 0
+    elif expected == "outside":
+        assert val >= 0
+    else:
+        assert pytest.approx(val, abs=1e-3) == expected
 
 
 # --- データセットのテスト ---
