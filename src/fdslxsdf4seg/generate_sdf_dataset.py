@@ -137,7 +137,6 @@ class Torus(SDFObject):
         center=None,
         major_r=None,
         minor_r=None,
-        axis=2,
     ):
         super().__init__(grid_size, device)
         D, H, W = grid_size
@@ -151,18 +150,19 @@ class Torus(SDFObject):
         if minor_r is None:
             minor_r = major_r * random.uniform(0.3, 0.6)
         self.center = torch.tensor(center, device=device).view(3, 1, 1, 1)
+        self.cx = self.center[0, :, :, :]
+        self.cy = self.center[1, :, :, :]
+        self.cz = self.center[2, :, :, :]
         self.R = major_r
         self.r = minor_r
-        self.axis = axis
 
     def sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0) - self.center
-        perp = (
-            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
-            - self.R
-        )
-        along = p[self.axis]
-        return torch.norm(torch.stack([perp, along], dim=0), dim=0) - self.r
+        new_x = x - self.cx
+        new_y = y - self.cy
+        new_z = z - self.cz
+        q = torch.stack([new_x, new_z], dim=0).norm(dim=0) - self.R
+        q = torch.stack([q, new_y], dim=0).norm(dim=0) - self.r
+        return q
 
     def max_distance(self):
         return self.R + self.r

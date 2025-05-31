@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.fdslxsdf4seg.generate_sdf_dataset import (
+from fdslxsdf4seg.generate_sdf_dataset import (
     Box,
     Cylinder,
     SDFSegmentationDataset,
@@ -32,10 +32,11 @@ def test_sphere_sdf_values(center, radius, point, expected):
     # 座標メッシュから特定点を取る
     z, y, x = point
     val = sph.sdf(
-        torch.tensor(z, dtype=torch.float32),
-        torch.tensor(y, dtype=torch.float32),
-        torch.tensor(x, dtype=torch.float32),
+        torch.tensor(z, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(y, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(x, dtype=torch.float32).reshape(1, 1, 1),
     )
+    print(f"SDF value at {point}: {val}")
     assert pytest.approx(val.item(), abs=1e-3) == expected
 
 
@@ -50,9 +51,9 @@ def test_box_sdf_sign(center, half_extents, point, inside):
     box = Box(grid_size, device, center=center, half_extents=half_extents)
     z, y, x = point
     val = box.sdf(
-        torch.tensor(z, dtype=torch.float32),
-        torch.tensor(y, dtype=torch.float32),
-        torch.tensor(x, dtype=torch.float32),
+        torch.tensor(z, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(y, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(x, dtype=torch.float32).reshape(1, 1, 1),
     ).item()
     if inside:
         assert val < 0
@@ -61,23 +62,21 @@ def test_box_sdf_sign(center, half_extents, point, inside):
 
 
 @pytest.mark.parametrize(
-    "radius, height, point, inside",
+    "center, radius, height, point, inside",
     [
-        (3.0, 8.0, (8, 8, 8), True),
-        (3.0, 8.0, (8, 8, 8 + 8.0 / 2 + 1), False),
+        ((8, 8, 8), 3.0, 8.0, (8, 8, 8), True),
+        ((8, 8, 8), 3.0, 8.0, (8, 8, 8 + 8.0 / 2 + 1), False),
     ],
 )
-def test_cylinder_sdf(
-    center=(8, 8, 8), radius=3.0, height=8.0, point=None, inside=True
-):
+def test_cylinder_sdf(center, radius, height, point, inside):
     cyl = Cylinder(
         grid_size, device, center=center, radius=radius, height=height, axis=2
     )
     z, y, x = point
     val = cyl.sdf(
-        torch.tensor(z, dtype=torch.float32),
-        torch.tensor(y, dtype=torch.float32),
-        torch.tensor(x, dtype=torch.float32),
+        torch.tensor(z, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(y, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(x, dtype=torch.float32).reshape(1, 1, 1),
     ).item()
     if inside:
         assert val < 0
@@ -99,15 +98,14 @@ def test_cylinder_sdf(
     ],
 )
 def test_torus_sdf(center, major, minor, point, expected):
-    torus = Torus(
-        grid_size, device, center=center, major_radius=major, minor_radius=minor
-    )
+    torus = Torus(grid_size, device, center=center, major_r=major, minor_r=minor)
     z, y, x = point
     val = torus.sdf(
-        torch.tensor(z, dtype=torch.float32),
-        torch.tensor(y, dtype=torch.float32),
-        torch.tensor(x, dtype=torch.float32),
+        torch.tensor(x, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(y, dtype=torch.float32).reshape(1, 1, 1),
+        torch.tensor(z, dtype=torch.float32).reshape(1, 1, 1),
     ).item()
+    print(f"Torus SDF value at {point}: {val}")
     if expected == "inside":
         assert val < 0
     elif expected == "outside":
