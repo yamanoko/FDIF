@@ -251,26 +251,34 @@ def generate_and_save(
         fname = os.path.join(out_dir, f"sample_{i:05d}.npz")
         np.savez_compressed(fname, x=x, y=y)
         if i % 50 == 0:
-            print(np.count_nonzero(x), np.count_nonzero(y))
             print(f"Saved {i + 1}/{num_samples}")
 
     print("Done.")
 
 
-def visualize_sample(sample):
+def visualize_sample(sample, output_file_name):
     x, y = sample
-
-    fig = plt.figure()
-    ax = fig.add_subplot(projection="3d")
-    ax.voxels(x[0], facecolors="blue", edgecolor="k", alpha=0.5)
-    ax.voxels(y[0], facecolors="red", edgecolor="k", alpha=0.5)
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title("SDF Volume (blue) and Segmentation Mask (red)")
-    plt.tight_layout()
+    # visualize x and y using voxels
+    x = x.squeeze(0)  # (D, H, W)
+    fig = plt.figure(figsize=(10, 5))
+    ax1 = fig.add_subplot(121, projection="3d")
+    ax2 = fig.add_subplot(122, projection="3d")
+    ax1.voxels(x, edgecolor="k", facecolors="blue", shade=False)
+    # yは複数のオブジェクトマスクを持つため、各オブジェクトを異なる色で表示
+    colors = np.zeros(y[0].shape + (4,), dtype=object)
+    for i in range(y.shape[0]):
+        mask = y[i] > 0
+        colors[mask, :] = plt.cm.viridis(i / y.shape[0])
+    ax2.voxels(x, edgecolor="k", facecolors=colors, shade=False)
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.set_zlabel("Z")
+    ax1.set_title("SDF Volume")
+    ax2.set_title("Object Masks")
     # 保存
-    plt.savefig("sample_visualization.png")
+    plt.tight_layout()
+    # fig.savefig("sample_visualization.png")
+    plt.savefig(output_file_name)
 
 
 if __name__ == "__main__":
@@ -283,7 +291,16 @@ if __name__ == "__main__":
     p.add_argument("--min_objects", type=int, default=2)
     p.add_argument("--max_objects", type=int, default=5)
     p.add_argument("--seed", type=int, default=None)
-    p.add_argument("--visualize", action="store_true", help="Visualize a sample")
+    # p.add_argument("--visualize", action="store_true", help="Visualize a sample")
+    p.add_argument(
+        "--num_visualize", type=int, default=0, help="Number of samples to visualize"
+    )
+    p.add_argument(
+        "--visualize_output",
+        type=str,
+        default=None,
+        help="Output directory for visualizations",
+    )
     args = p.parse_args()
 
     generate_and_save(
@@ -294,16 +311,21 @@ if __name__ == "__main__":
         max_objects=args.max_objects,
         seed=args.seed,
     )
-    if args.visualize:
-        # 保存したデータからランダムにサンプルを取得して可視化
-        # sample_file = os.path.join(args.out_dir, "sample_00000.npz")
-        sample_files = [f for f in os.listdir(args.out_dir) if f.endswith(".npz")]
-        sample_file = random.choice(sample_files)
-        sample_file = os.path.join(args.out_dir, sample_file)
-        # サンプルを読み込み
-        print(f"Loading sample from {sample_file}")
-        sample = np.load(sample_file)
-        sample = (sample["x"], sample["y"])
-        print(f"Visualizing sample from {sample_file}")
-        # 可視化関数を呼び出す
-        visualize_sample(sample)
+    if args.num_visualize > 0:
+        # load output samples at random and visualize
+        output_files = [
+            os.path.join(args.out_dir, f)
+            for f in os.listdir(args.out_dir)
+            if f.endswith(".npz")
+        ]
+        random.shuffle(output_files)
+        for i in range(min(args.num_visualize, len(output_files))):
+            sample = np.load(output_files[i])
+            visualize_sample(
+                (sample["x"], sample["y"]),
+                output_file_name=os.path.join(
+                    args.visualize_output or args.out_dir,
+                    f"visualization_{i:05d}.png",
+                ),
+            )
+            print(f"Visualized sample {i + 1}/{args.num_visualize}")
