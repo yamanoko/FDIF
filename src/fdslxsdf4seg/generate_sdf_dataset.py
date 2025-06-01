@@ -209,10 +209,15 @@ class SDFSegmentationDataset(Dataset):
             sdfs.append(s)
             max_ds.append(obj.max_distance())
 
-        # 動的に a を決定し平均
-        a_vals = [128 ** (1.0 / md) for md in max_ds]
-        vals = [torch.pow(a, -sdf) for a, sdf in zip(a_vals, sdfs)]
-        x_vol = torch.stack(vals, dim=0).mean(dim=0)
+        # # 動的に a を決定し平均
+        # a_vals = [128 ** (1.0 / md) for md in max_ds]
+        # vals = [torch.pow(a, -sdf) for a, sdf in zip(a_vals, sdfs)]
+        # x_vol = torch.stack(vals, dim=0).mean(dim=0)
+        # x_vol = torch.clamp(x_vol, 0.0, 128.0).to(torch.uint8).unsqueeze(0)
+
+        x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 2.0) + 1.0)
+        # x_vol = x_vol.mean(dim=0)
+        x_vol = x_vol.sum(dim=0)
         x_vol = torch.clamp(x_vol, 0.0, 128.0).to(torch.uint8).unsqueeze(0)
 
         y_vol = torch.stack([(sdf < 0).to(torch.uint8) for sdf in sdfs], dim=0)
@@ -263,13 +268,15 @@ def visualize_sample(sample, output_file_name):
     fig = plt.figure(figsize=(10, 5))
     ax1 = fig.add_subplot(121, projection="3d")
     ax2 = fig.add_subplot(122, projection="3d")
-    ax1.voxels(x, edgecolor="k", facecolors="blue", shade=False)
+    ax1.voxels(x > 20, edgecolor="k", facecolors="blue", shade=False)
     # yは複数のオブジェクトマスクを持つため、各オブジェクトを異なる色で表示
     colors = np.zeros(y[0].shape + (4,), dtype=object)
+    visualized_y = np.zeros(y.shape[1:], dtype=bool)
     for i in range(y.shape[0]):
+        visualized_y = visualized_y | y[i]
         mask = y[i] > 0
         colors[mask, :] = plt.cm.viridis(i / y.shape[0])
-    ax2.voxels(x, edgecolor="k", facecolors=colors, shade=False)
+    ax2.voxels(visualized_y, edgecolor="k", facecolors=colors, shade=False)
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.set_zlabel("Z")
@@ -279,6 +286,14 @@ def visualize_sample(sample, output_file_name):
     plt.tight_layout()
     # fig.savefig("sample_visualization.png")
     plt.savefig(output_file_name)
+    # save a slice of the volume (only x)
+    # visualize with a color bar
+    slice_index = x.shape[0] // 2
+    plt.figure(figsize=(5, 5))
+    plt.title(f"Slice at index {slice_index}")
+    plt.imshow(x[slice_index, :, :], cmap="gray", vmin=0, vmax=128)
+    plt.colorbar()
+    plt.savefig(output_file_name.replace(".png", "_slice.png"))
 
 
 if __name__ == "__main__":
