@@ -6,6 +6,7 @@ from typing import List
 
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -43,7 +44,7 @@ class Sphere(SDFObject):
             cx = random.uniform(D * 0.2, D * 0.8)
             center = (cz, cy, cx)
         if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.1, min(D, H, W) * 0.3)
+            radius = random.uniform(min(D, H, W) * 0.3, min(D, H, W) * 0.5)
         # パラメータ設定
         self.center = torch.tensor(center, device=device).view(3, 1, 1, 1)
         self.radius = radius
@@ -104,7 +105,7 @@ class Cylinder(SDFObject):
             cx = random.uniform(D * 0.2, D * 0.8)
             center = (cz, cy, cx)
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.3)
+            radius = random.uniform(min(D, H) * 0.3, min(D, H) * 0.5)
         if height is None:
             height = random.uniform(W * 0.2, W * 0.6)
         self.center = torch.tensor(center, device=device).view(3, 1, 1, 1)
@@ -146,7 +147,7 @@ class Torus(SDFObject):
             cx = random.uniform(D * 0.2, D * 0.8)
             center = (cz, cy, cx)
         if major_r is None:
-            major_r = random.uniform(min(D, H) * 0.1, min(D, H) * 0.3)
+            major_r = random.uniform(min(D, H) * 0.3, min(D, H) * 0.5)
         if minor_r is None:
             minor_r = major_r * random.uniform(0.3, 0.6)
         self.center = torch.tensor(center, device=device).view(3, 1, 1, 1)
@@ -216,6 +217,9 @@ class SDFSegmentationDataset(Dataset):
 
         y_vol = torch.stack([(sdf < 0).to(torch.uint8) for sdf in sdfs], dim=0)
 
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
         return x_vol.cpu().numpy(), y_vol.cpu().numpy()
 
 
@@ -226,7 +230,6 @@ def generate_and_save(
     num_samples: int,
     min_objects: int,
     max_objects: int,
-    num_workers: int,
     seed: int = None,
 ):
     if seed is not None:
@@ -240,7 +243,7 @@ def generate_and_save(
         min_objects=min_objects,
         max_objects=max_objects,
     )
-    loader = DataLoader(ds, batch_size=1, num_workers=num_workers, pin_memory=True)
+    loader = DataLoader(ds, batch_size=1, num_workers=0)
 
     for i, (x, y) in enumerate(loader):
         x = x[0]
@@ -248,9 +251,26 @@ def generate_and_save(
         fname = os.path.join(out_dir, f"sample_{i:05d}.npz")
         np.savez_compressed(fname, x=x, y=y)
         if i % 50 == 0:
+            print(np.count_nonzero(x), np.count_nonzero(y))
             print(f"Saved {i + 1}/{num_samples}")
 
     print("Done.")
+
+
+def visualize_sample(sample):
+    x, y = sample
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
+    ax.voxels(x[0], facecolors="blue", edgecolor="k", alpha=0.5)
+    ax.voxels(y[0], facecolors="red", edgecolor="k", alpha=0.5)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title("SDF Volume (blue) and Segmentation Mask (red)")
+    plt.tight_layout()
+    # 保存
+    plt.savefig("sample_visualization.png")
 
 
 if __name__ == "__main__":
@@ -262,8 +282,8 @@ if __name__ == "__main__":
     p.add_argument("--num_samples", type=int, default=200)
     p.add_argument("--min_objects", type=int, default=2)
     p.add_argument("--max_objects", type=int, default=5)
-    p.add_argument("--num_workers", type=int, default=4)
     p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--visualize", action="store_true", help="Visualize a sample")
     args = p.parse_args()
 
     generate_and_save(
@@ -272,6 +292,18 @@ if __name__ == "__main__":
         num_samples=args.num_samples,
         min_objects=args.min_objects,
         max_objects=args.max_objects,
-        num_workers=args.num_workers,
         seed=args.seed,
     )
+    if args.visualize:
+        # 保存したデータからランダムにサンプルを取得して可視化
+        # sample_file = os.path.join(args.out_dir, "sample_00000.npz")
+        sample_files = [f for f in os.listdir(args.out_dir) if f.endswith(".npz")]
+        sample_file = random.choice(sample_files)
+        sample_file = os.path.join(args.out_dir, sample_file)
+        # サンプルを読み込み
+        print(f"Loading sample from {sample_file}")
+        sample = np.load(sample_file)
+        sample = (sample["x"], sample["y"])
+        print(f"Visualizing sample from {sample_file}")
+        # 可視化関数を呼び出す
+        visualize_sample(sample)
