@@ -2,6 +2,7 @@
 import argparse
 import os
 import random
+import time
 from typing import List
 
 import numpy as np
@@ -298,7 +299,7 @@ def visualize_sample(sample, output_file_name):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--out_dir", type=str, required=True)
+    p.add_argument("--out_dir", type=str)
     p.add_argument("--D", type=int, default=64)
     p.add_argument("--H", type=int, default=64)
     p.add_argument("--W", type=int, default=64)
@@ -310,27 +311,64 @@ if __name__ == "__main__":
     p.add_argument(
         "--num_visualize", type=int, default=0, help="Number of samples to visualize"
     )
-    p.add_argument(
-        "--visualize_output",
-        type=str,
-        default=None,
-        help="Output directory for visualizations",
-    )
     args = p.parse_args()
 
+    if not args.out_dir:
+        # 出力ディレクトリが指定されていない場合は、カレントディレクトリに日付と時刻を付けて作成
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        args.out_dir = f"outputs/{timestamp}"
+
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir, exist_ok=True)
+
+    # ログをoutputディレクトリに保存
+    log_file = os.path.join(args.out_dir, "generation_log.txt")
+    with open(log_file, "w") as f:
+        f.write(f"Output directory: {args.out_dir}\n")
+        f.write(f"Grid size: {args.D}x{args.H}x{args.W}\n")
+        f.write(f"Number of samples: {args.num_samples}\n")
+        f.write(f"Min objects per sample: {args.min_objects}\n")
+        f.write(f"Max objects per sample: {args.max_objects}\n")
+        if args.seed is not None:
+            f.write(f"Seed: {args.seed}\n")
+
+    print("Generating dataset with parameters:")
+    print(f"  Output directory: {args.out_dir}")
+    print(f"  Grid size: {args.D}x{args.H}x{args.W}")
+    print(f"  Number of samples: {args.num_samples}")
+    print(f"  Min objects per sample: {args.min_objects}")
+    print(f"  Max objects per sample: {args.max_objects}")
+    time_start = time.time()
+
+    data_output_dir = os.path.join(args.out_dir, "data")
+    os.makedirs(data_output_dir, exist_ok=True)
+
     generate_and_save(
-        out_dir=args.out_dir,
+        out_dir=data_output_dir,
         grid_size=[args.D, args.H, args.W],
         num_samples=args.num_samples,
         min_objects=args.min_objects,
         max_objects=args.max_objects,
         seed=args.seed,
     )
+
+    time_end = time.time()
+    print(f"Dataset generation completed in {time_end - time_start:.2f} seconds.")
+    print(f"Data saved to {args.out_dir}")
+    with open(log_file, "a") as f:
+        f.write(
+            f"Dataset generation completed in {time_end - time_start:.2f} seconds.\n"
+        )
+        f.write(f"Data saved to {args.out_dir}\n")
+    print(f"Log saved to {log_file}")
+
     if args.num_visualize > 0:
+        visualize_output = os.path.join(args.out_dir, "visualizations")
+        os.makedirs(visualize_output, exist_ok=True)
         # load output samples at random and visualize
         output_files = [
-            os.path.join(args.out_dir, f)
-            for f in os.listdir(args.out_dir)
+            os.path.join(data_output_dir, f)
+            for f in os.listdir(data_output_dir)
             if f.endswith(".npz")
         ]
         random.shuffle(output_files)
@@ -339,7 +377,7 @@ if __name__ == "__main__":
             visualize_sample(
                 (sample["x"], sample["y"]),
                 output_file_name=os.path.join(
-                    args.visualize_output or args.out_dir,
+                    visualize_output,
                     f"visualization_{i:05d}.png",
                 ),
             )
