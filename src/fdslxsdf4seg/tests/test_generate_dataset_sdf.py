@@ -142,7 +142,6 @@ def test_generate_and_save_creates_files(tmp_path):
         num_samples=2,
         min_objects=2,
         max_objects=2,
-        num_workers=0,
         seed=0,
     )
     files = sorted(os.listdir(outdir))
