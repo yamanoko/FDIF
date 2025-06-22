@@ -1,10 +1,12 @@
 # file: generate_sdf_dataset.py
 import argparse
+import json
 import os
 import random
 import time
 from typing import List
 
+import nibabel as nib
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -182,8 +184,6 @@ class SDFSegmentationDataset(Dataset):
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
-        self.min_o = min_objects
-        self.max_o = max_objects
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -193,7 +193,16 @@ class SDFSegmentationDataset(Dataset):
         xs = torch.linspace(0, self.W - 1, self.W, device=self.device)
         self.Z, self.Y, self.X = torch.meshgrid(zs, ys, xs, indexing="ij")
 
-        self.primitive_classes = [Sphere, Box, Cylinder, Torus]
+        primitives = [Sphere, Box, Cylinder, Torus]
+        # class_id, primitive_class
+        # 1から始まるIDを割り当てる
+        self.primitive_classes = {
+            i + 1: primitive for i, primitive in enumerate(primitives)
+        }
+        self.min_o = max(1, min_objects)  # 最小オブジェクト数は1以上
+        self.max_o = min(
+            max_objects, len(self.primitive_classes)
+        )  # 最大オブジェクト数はクラス数以下
 
     def __len__(self):
         return self.num_volumes
@@ -202,9 +211,9 @@ class SDFSegmentationDataset(Dataset):
         n_objs = random.randint(self.min_o, self.max_o)
         sdfs = []
         max_ds = []
-
-        for _ in range(n_objs):
-            PrimClass = random.choice(self.primitive_classes)
+        primitive_ids = random.sample(list(self.primitive_classes.keys()), n_objs)
+        for id in primitive_ids:
+            PrimClass = self.primitive_classes[id]
             obj = PrimClass(grid_size=[self.D, self.H, self.W], device=self.device)
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
@@ -219,9 +228,26 @@ class SDFSegmentationDataset(Dataset):
         x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 2.0) + 1.0)
         # x_vol = x_vol.mean(dim=0)
         x_vol = x_vol.sum(dim=0)
-        x_vol = torch.clamp(x_vol, 0.0, 128.0).to(torch.uint8).unsqueeze(0)
+        x_vol = torch.clamp(x_vol, 0.0, 128.0).to(torch.uint8)
 
-        y_vol = torch.stack([(sdf < 0).to(torch.uint8) for sdf in sdfs], dim=0)
+        # sdfs は各オブジェクトの SDF を保持
+        # SDFが0未満の部分がどれくらいあるかを体積として、体積が大きい順にSDFを並び替える
+        # 各オブジェクトのidもそれに伴って並び替える
+        stacked_sdfs = torch.stack(sdfs, dim=0)
+        stacked_sdfs = stacked_sdfs.view(n_objs, -1)  # (n_objs, D*H*W)
+        # 各オブジェクトの体積を計算
+        volumes = (stacked_sdfs < 0).sum(dim=1)  # (n_objs,)
+        # 体積が大きい順にソート
+        sorted_indices = torch.argsort(volumes, descending=True)
+        sdfs = sdfs[sorted_indices]  # (n_objs, D, H, W)
+        primitive_ids = [primitive_ids[i] for i in sorted_indices.tolist()]
+        # 各オブジェクトのSDFが0未満の部分がそのオブジェクトのIDとなる
+        # 体積の小さいオブジェクトのIDが優先される
+        y_vol = torch.zeros_like(x_vol, dtype=torch.uint8)
+        for i, obj_id in enumerate(primitive_ids):
+            mask = (sdfs[i] < 0).to(torch.uint8)
+            # オブジェクトIDをマスクに適用
+            y_vol[mask] = obj_id
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -243,6 +269,10 @@ def generate_and_save(
         torch.manual_seed(seed)
 
     os.makedirs(out_dir, exist_ok=True)
+    numpy_dir = os.path.join(out_dir, "numpy")
+    nii_dir = os.path.join(out_dir, "nii")
+    os.makedirs(os.path.join(numpy_dir, "numpy"), exist_ok=True)
+    os.makedirs(os.path.join(nii_dir, "nii"), exist_ok=True)
     ds = SDFSegmentationDataset(
         grid_size=grid_size,
         num_volumes=num_samples,
@@ -251,32 +281,59 @@ def generate_and_save(
     )
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
+    data_json_list = list()
     for i, (x, y) in enumerate(loader):
         x = x[0]
         y = y[0]
-        fname = os.path.join(out_dir, f"sample_{i:05d}.npz")
+        fname = os.path.join(numpy_dir, f"sample_{i:05d}.npz")
         np.savez_compressed(fname, x=x, y=y)
+        # Remove channel dimension for saving as 3D NIfTI images
+        nii_x = nib.Nifti1Image(x, affine=np.eye(4))
+        nii_y = nib.Nifti1Image(y, affine=np.eye(4))
+        # Save the SDF volume and segmentation mask as separate .nii.gz files
+        image_file = os.path.join("image", f"sample_{i:05d}_x.nii.gz")
+        nib.save(nii_x, os.path.join(nii_dir, image_file))
+        label_file = os.path.join("label", f"sample_{i:05d}_y.nii.gz")
+        nib.save(nii_y, os.path.join(nii_dir, label_file))
+        data_json_list.append(
+            {
+                "image": image_file,
+                "label": label_file,
+                "id": f"sample_{i:05d}",
+            }
+        )
         if i % 50 == 0:
             print(f"Saved {i + 1}/{num_samples}")
-
+    # Save dataset metadata
+    data_json_path = os.path.join(out_dir, "data.json")
+    with open(data_json_path, "w") as f:
+        json.dump(data_json_list, f, indent=4)
+    print(f"Saved dataset metadata to {data_json_path}")
     print("Done.")
 
 
 def visualize_sample(sample, output_file_name):
     x, y = sample
     # visualize x and y using voxels
-    x = x.squeeze(0)  # (D, H, W)
     fig = plt.figure(figsize=(10, 5))
     ax1 = fig.add_subplot(121, projection="3d")
     ax2 = fig.add_subplot(122, projection="3d")
     ax1.voxels(x > 20, edgecolor="k", facecolors="blue", shade=False)
     # yは複数のオブジェクトマスクを持つため、各オブジェクトを異なる色で表示
-    colors = np.zeros(y[0].shape + (4,), dtype=object)
-    visualized_y = np.zeros(y.shape[1:], dtype=bool)
-    for i in range(y.shape[0]):
-        visualized_y = visualized_y | y[i]
-        mask = y[i] > 0
-        colors[mask, :] = plt.cm.viridis(i / y.shape[0])
+    unique_objects = np.unique(y)
+    colors = plt.cm.get_cmap("tab10", len(unique_objects))
+    visualized_y = np.zeros(y.shape + (4,), dtype=np.float32)  # RGBA
+    for i, obj_id in enumerate(unique_objects):
+        if obj_id == 0:
+            continue
+        mask = y == obj_id
+        visualized_y[mask] = colors(i)[:3]  # RGB
+        visualized_y[mask, 3] = 1.0  # アルファチャンネルを1に設定
+    # アルファチャンネルを0に設定
+    visualized_y[y == 0] = [0, 0, 0, 0]  # 背景は透明に設定
+    # 色を正規化
+    visualized_y = visualized_y / 255.0  # 0-1
+    # ボクセル表示
     ax2.voxels(visualized_y, edgecolor="k", facecolors=colors, shade=False)
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
@@ -341,7 +398,6 @@ if __name__ == "__main__":
     time_start = time.time()
 
     data_output_dir = os.path.join(args.out_dir, "data")
-    os.makedirs(data_output_dir, exist_ok=True)
 
     generate_and_save(
         out_dir=data_output_dir,
