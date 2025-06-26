@@ -409,14 +409,14 @@ def generate_and_save(
         nii_x = nib.Nifti1Image(x, affine=np.eye(4))
         nii_y = nib.Nifti1Image(y, affine=np.eye(4))
         # Save the SDF volume and segmentation mask as separate .nii.gz files
-        image_file = os.path.join("image", f"sample_{i:05d}_x.nii.gz")
-        nib.save(nii_x, os.path.join(nii_dir, image_file))
-        label_file = os.path.join("label", f"sample_{i:05d}_y.nii.gz")
-        nib.save(nii_y, os.path.join(nii_dir, label_file))
+        image_file = os.path.join(nii_dir, "image", f"sample_{i:05d}_x.nii.gz")
+        nib.save(nii_x, image_file)
+        label_file = os.path.join(nii_dir, "label", f"sample_{i:05d}_y.nii.gz")
+        nib.save(nii_y, label_file)
         data_json_list.append(
             {
-                "image": image_file,
-                "label": label_file,
+                "image": os.path.abspath(image_file),
+                "label": os.path.abspath(label_file),
                 "id": f"sample_{i:05d}",
             }
         )
