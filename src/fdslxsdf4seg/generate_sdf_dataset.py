@@ -34,9 +34,9 @@ class SDFObject:
             # 中心座標を指定する場合は平行移動行列を設定
             t_x, t_y, t_z = center
         else:
-            t_x = random.uniform(-0.2, 0.2) * grid_size[0] + grid_size[0] / 2.0
-            t_y = random.uniform(-0.2, 0.2) * grid_size[1] + grid_size[1] / 2.0
-            t_z = random.uniform(-0.2, 0.2) * grid_size[2] + grid_size[2] / 2.0
+            t_x = random.uniform(-0.2, 0.2) * grid_size[0]
+            t_y = random.uniform(-0.2, 0.2) * grid_size[1]
+            t_z = random.uniform(-0.2, 0.2) * grid_size[2]
         T = self.tranlate_matrix(t_x, t_y, t_z)
         if transform:
             # 回転角度を生成
@@ -439,7 +439,7 @@ def visualize_sample(sample, output_file_name):
     ax1.voxels(x > 20, edgecolor="k", facecolors="blue", shade=False)
     # yは複数のオブジェクトマスクを持つため、各オブジェクトを異なる色で表示
     unique_objects = np.unique(y)
-    colors = plt.cm.get_cmap("tab10", len(unique_objects))
+    colors = plt.get_cmap("tab10", len(unique_objects))
     visualized_y = np.zeros(y.shape + (4,), dtype=np.float32)  # RGBA
     for i, obj_id in enumerate(unique_objects):
         if obj_id == 0:
@@ -448,10 +448,8 @@ def visualize_sample(sample, output_file_name):
         color = colors(i)[:3]  # RGB
         visualized_y[mask, :3] = color  # Set RGB channels
         visualized_y[mask, 3] = 1.0  # アルファチャンネルを1に設定
-    # アルファチャンネルを0に設定
-    visualized_y[y == 0] = [0, 0, 0, 0]  # 背景は透明に設定
     # 色を正規化
-    visualized_y = visualized_y / 255.0  # 0-1    # ボクセル表示
+    # visualized_y = visualized_y / 255.0  # 0-1    # ボクセル表示
     # visualized_yは4次元配列 (D, H, W, 4) で、最後の次元がRGBA
     # voxels関数はボクセルが満たされているかどうかを示す3次元ブール配列と、
     # 色を指定するfacecolors配列を別々に受け取る
@@ -543,16 +541,19 @@ if __name__ == "__main__":
     print(f"Log saved to {log_file}")
 
     if args.num_visualize > 0:
+        print(f"Visualizing {args.num_visualize} samples...")
         visualize_output = os.path.join(args.out_dir, "visualizations")
         os.makedirs(visualize_output, exist_ok=True)
         # load output samples at random and visualize
+        np_output_dir = os.path.join(data_output_dir, "numpy")
         output_files = [
-            os.path.join(data_output_dir, f)
-            for f in os.listdir(data_output_dir)
+            os.path.join(np_output_dir, f)
+            for f in os.listdir(np_output_dir)
             if f.endswith(".npz")
         ]
         random.shuffle(output_files)
         for i in range(min(args.num_visualize, len(output_files))):
+            print(f"Visualizing sample {i + 1}/{args.num_visualize}...")
             sample = np.load(output_files[i])
             visualize_sample(
                 (sample["x"], sample["y"]),
