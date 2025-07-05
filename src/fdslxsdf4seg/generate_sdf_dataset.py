@@ -6,10 +6,12 @@ import random
 import time
 from typing import List
 
-import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 import torch
+from plotly.subplots import make_subplots
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -380,100 +382,159 @@ def generate_and_save(
     min_objects: int,
     max_objects: int,
     seed: int = None,
+    num_val_samples: int = 0,
 ):
     if seed is not None:
         random.seed(seed)
         torch.manual_seed(seed)
 
     os.makedirs(out_dir, exist_ok=True)
-    numpy_dir = os.path.join(out_dir, "numpy")
-    nii_dir = os.path.join(out_dir, "nii")
-    os.makedirs(numpy_dir, exist_ok=True)
-    os.makedirs(os.path.join(nii_dir, "image"), exist_ok=True)
-    os.makedirs(os.path.join(nii_dir, "label"), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "image"), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "label"), exist_ok=True)
     ds = SDFSegmentationDataset(
         grid_size=grid_size,
-        num_volumes=num_samples,
+        num_volumes=num_samples + num_val_samples,
         min_objects=min_objects,
         max_objects=max_objects,
     )
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
-    data_json_list = list()
+    data_json = {}
+    json_training_list = list()
+    json_validation_list = list()
     for i, (x, y) in enumerate(loader):
         x = x[0].numpy() if hasattr(x[0], "numpy") else x[0]
         y = y[0].numpy() if hasattr(y[0], "numpy") else y[0]
-        fname = os.path.join(numpy_dir, f"sample_{i:05d}.npz")
-        np.savez_compressed(fname, x=x, y=y)
         # Remove channel dimension for saving as 3D NIfTI images
         nii_x = nib.Nifti1Image(x, affine=np.eye(4))
         nii_y = nib.Nifti1Image(y, affine=np.eye(4))
         # Save the SDF volume and segmentation mask as separate .nii.gz files
-        image_file = os.path.join(nii_dir, "image", f"sample_{i:05d}_x.nii.gz")
+        image_file = os.path.join(out_dir, "image", f"sample_{i:05d}_x.nii.gz")
         nib.save(nii_x, image_file)
-        label_file = os.path.join(nii_dir, "label", f"sample_{i:05d}_y.nii.gz")
+        label_file = os.path.join(out_dir, "label", f"sample_{i:05d}_y.nii.gz")
         nib.save(nii_y, label_file)
-        data_json_list.append(
-            {
-                "image": os.path.abspath(image_file),
-                "label": os.path.abspath(label_file),
-                "id": f"sample_{i:05d}",
-            }
-        )
+        if i < num_samples:
+            json_training_list.append(
+                {
+                    "image": os.path.abspath(image_file),
+                    "label": os.path.abspath(label_file),
+                    "id": f"sample_{i:05d}",
+                }
+            )
+        else:
+            json_validation_list.append(
+                {
+                    "image": os.path.abspath(image_file),
+                    "label": os.path.abspath(label_file),
+                    "id": f"sample_{i:05d}",
+                }
+            )
         if i % 50 == 0:
             print(f"Saved {i + 1}/{num_samples}")
     # Save dataset metadata
+    data_json["training"] = json_training_list
+    data_json["validation"] = json_validation_list
     data_json_path = os.path.join(out_dir, "data.json")
     with open(data_json_path, "w") as f:
-        json.dump(data_json_list, f, indent=4)
+        json.dump(data_json, f, indent=4)
     print(f"Saved dataset metadata to {data_json_path}")
     print("Done.")
 
 
 def visualize_sample(sample, output_file_name):
+    """
+    Visualize sample using Plotly (lightweight alternative to matplotlib)
+    """
     x, y = sample
-    # visualize x and y using voxels
-    fig = plt.figure(figsize=(10, 5))
-    ax1 = fig.add_subplot(121, projection="3d")
-    ax2 = fig.add_subplot(122, projection="3d")
-    ax1.voxels(x > 20, edgecolor="k", facecolors="blue", shade=False)
-    # yは複数のオブジェクトマスクを持つため、各オブジェクトを異なる色で表示
+
+    # Create subplots
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("SDF Volume", "Object Masks"),
+        specs=[[{"type": "scatter3d"}, {"type": "scatter3d"}]],
+    )
+
+    # Left plot: SDF Volume visualization
+    # Sample points where SDF > threshold for visualization
+    threshold = 20
+    z_indices, y_indices, x_indices = np.where(x > threshold)
+
+    if len(z_indices) > 0:
+        fig.add_trace(
+            go.Scatter3d(
+                x=x_indices,
+                y=y_indices,
+                z=z_indices,
+                mode="markers",
+                marker=dict(size=2, color="blue", opacity=0.6),
+                name="SDF > threshold",
+            ),
+            row=1,
+            col=1,
+        )
+
+    # Right plot: Object Masks visualization
     unique_objects = np.unique(y)
-    colors = plt.get_cmap("tab10", len(unique_objects))
-    visualized_y = np.zeros(y.shape + (4,), dtype=np.float32)  # RGBA
+    colors = px.colors.qualitative.Set1
+
     for i, obj_id in enumerate(unique_objects):
         if obj_id == 0:
             continue
-        mask = y == obj_id
-        color = colors(i)[:3]  # RGB
-        visualized_y[mask, :3] = color  # Set RGB channels
-        visualized_y[mask, 3] = 1.0  # アルファチャンネルを1に設定
-    # 色を正規化
-    # visualized_y = visualized_y / 255.0  # 0-1    # ボクセル表示
-    # visualized_yは4次元配列 (D, H, W, 4) で、最後の次元がRGBA
-    # voxels関数はボクセルが満たされているかどうかを示す3次元ブール配列と、
-    # 色を指定するfacecolors配列を別々に受け取る
-    filled_voxels = y > 0  # オブジェクトが存在する場所
-    ax2.voxels(filled_voxels, facecolors=visualized_y, edgecolor="k", shade=False)
-    ax1.set_xlabel("X")
-    ax1.set_ylabel("Y")
-    ax1.set_zlabel("Z")
-    ax1.set_title("SDF Volume")
-    ax2.set_title("Object Masks")  # 保存
-    plt.tight_layout()
-    # fig.savefig("sample_visualization.png")
-    plt.savefig(output_file_name)
-    plt.close(fig)
 
-    # save a slice of the volume (only x)
-    # visualize with a color bar
+        z_obj, y_obj, x_obj = np.where(y == obj_id)
+
+        if len(z_obj) > 0:
+            fig.add_trace(
+                go.Scatter3d(
+                    x=x_obj,
+                    y=y_obj,
+                    z=z_obj,
+                    mode="markers",
+                    marker=dict(size=2, color=colors[i % len(colors)], opacity=0.7),
+                    name=f"Object {obj_id}",
+                ),
+                row=1,
+                col=2,
+            )
+
+    # Update layout
+    fig.update_layout(
+        title="SDF Dataset Sample Visualization",
+        scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
+        scene2=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
+        showlegend=True,
+        width=1000,
+        height=500,
+    )
+
+    # Save as HTML (interactive) or PNG (static)
+    if output_file_name.endswith(".html"):
+        fig.write_html(output_file_name)
+    else:
+        fig.write_image(output_file_name)
+
+    # Create slice visualization
     slice_index = x.shape[0] // 2
-    plt.figure(figsize=(5, 5))
-    im = plt.imshow(x[slice_index, :, :], cmap="viridis")
-    plt.title(f"Slice at index {slice_index}")
-    plt.colorbar(im)
-    plt.savefig(output_file_name.replace(".png", "_slice.png"))
-    plt.close()
+    slice_fig = go.Figure(
+        data=go.Heatmap(
+            z=x[slice_index, :, :],
+            colorscale="viridis",
+            colorbar=dict(title="SDF Value"),
+        )
+    )
+
+    slice_fig.update_layout(
+        title=f"Slice at index {slice_index}", xaxis_title="X", yaxis_title="Y"
+    )
+
+    slice_filename = output_file_name.replace(".png", "_slice.png").replace(
+        ".html", "_slice.html"
+    )
+    if slice_filename.endswith(".html"):
+        slice_fig.write_html(slice_filename)
+    else:
+        slice_fig.write_image(slice_filename)
 
 
 if __name__ == "__main__":
@@ -483,10 +544,10 @@ if __name__ == "__main__":
     p.add_argument("--H", type=int, default=64)
     p.add_argument("--W", type=int, default=64)
     p.add_argument("--num_samples", type=int, default=200)
+    p.add_argument("--num_val_samples", type=int, default=0)
     p.add_argument("--min_objects", type=int, default=2)
     p.add_argument("--max_objects", type=int, default=5)
     p.add_argument("--seed", type=int, default=None)
-    # p.add_argument("--visualize", action="store_true", help="Visualize a sample")
     p.add_argument(
         "--num_visualize", type=int, default=0, help="Number of samples to visualize"
     )
@@ -525,6 +586,7 @@ if __name__ == "__main__":
         out_dir=data_output_dir,
         grid_size=[args.D, args.H, args.W],
         num_samples=args.num_samples,
+        num_val_samples=args.num_val_samples,
         min_objects=args.min_objects,
         max_objects=args.max_objects,
         seed=args.seed,
@@ -545,18 +607,23 @@ if __name__ == "__main__":
         visualize_output = os.path.join(args.out_dir, "visualizations")
         os.makedirs(visualize_output, exist_ok=True)
         # load output samples at random and visualize
-        np_output_dir = os.path.join(data_output_dir, "numpy")
-        output_files = [
-            os.path.join(np_output_dir, f)
-            for f in os.listdir(np_output_dir)
-            if f.endswith(".npz")
-        ]
-        random.shuffle(output_files)
-        for i in range(min(args.num_visualize, len(output_files))):
+        output_json_path = os.path.join(data_output_dir, "data.json")
+        with open(output_json_path, "r") as f:
+            data_json = json.load(f)
+        files_path = data_json["training"]
+        random.shuffle(files_path)
+        print(f"Total samples available for visualization: {len(files_path)}")
+        for i in range(min(args.num_visualize, len(files_path))):
+            file_info = files_path[i]
+            image_path = file_info["image"]
+            label_path = file_info["label"]
+            print("loading", image_path, label_path)
+            x = nib.load(image_path).get_fdata()
+            y = nib.load(label_path).get_fdata()
+            print(type(x), x.shape, type(y), y.shape)
             print(f"Visualizing sample {i + 1}/{args.num_visualize}...")
-            sample = np.load(output_files[i])
             visualize_sample(
-                (sample["x"], sample["y"]),
+                (x, y),
                 output_file_name=os.path.join(
                     visualize_output,
                     f"visualization_{i:05d}.png",

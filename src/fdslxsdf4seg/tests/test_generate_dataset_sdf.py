@@ -1,5 +1,6 @@
-import os
+import json
 
+import nibabel as nib
 import numpy as np
 import pytest
 import torch
@@ -190,19 +191,26 @@ def test_generate_and_save_creates_files(tmp_path):
         max_objects=2,
         seed=0,
     )
-    # numpyディレクトリ内のファイルをチェック
-    numpy_dir = outdir / "numpy"
-    files = sorted(os.listdir(numpy_dir))
-    assert len(files) == 2
-    for fname in files:
-        assert fname.endswith(".npz")
-        data = np.load(numpy_dir / fname)
-        assert "x" in data and "y" in data
-        x = data["x"]
-        y = data["y"]
-        assert x.dtype == np.uint8 and y.dtype == np.uint8
-        assert x.shape == tuple(grid_size)
-        assert y.shape == tuple(grid_size)
+    # 生成されたファイルをチェック
+    data_dir = outdir
+    assert data_dir.exists()
+    files_json_path = data_dir / "data.json"
+    assert files_json_path.exists()
+    with open(files_json_path, "r") as f:
+        data_json = json.load(f)
+    files = data_json["training"]
+    # 各ファイルの内容をチェック
+    for i, file_info in enumerate(files):
+        file_path = data_dir / file_info["image"]
+        assert file_path.exists(), f"File {file_path} does not exist"
+        # NIfTIファイルの読み込みとチェック
+        nifti_img = nib.load(str(file_path))
+        assert nifti_img.shape == tuple(grid_size), (
+            f"File {file_path} has incorrect shape {nifti_img.shape}, expected {grid_size}"
+        )
+        assert nifti_img.get_fdata().dtype == np.float64, (
+            f"File {file_path} has incorrect dtype {nifti_img.get_fdata().dtype}, expected float32"
+        )
 
 
 # --- 各プリミティブ個別生成・可視化テスト ---
@@ -386,17 +394,22 @@ def test_generate_and_save_with_visualization(tmp_path):
     )
 
     # 生成されたファイルをチェック
-    numpy_dir = outdir / "numpy"
-    assert numpy_dir.exists()
+    data_dir = outdir
+    assert data_dir.exists()
 
-    files = list(numpy_dir.glob("*.npz"))
-    assert len(files) == 2
+    files_json_path = data_dir / "data.json"
+    assert files_json_path.exists()
+    with open(files_json_path, "r") as f:
+        data_json = json.load(f)
+
+    files = data_json["training"]
 
     # 各ファイルの内容をチェック
-    for i, file_path in enumerate(sorted(files)):
-        data = np.load(file_path)
-        x = data["x"]
-        y = data["y"]
+    for i, file_info in enumerate(files):
+        image_path = file_info["image"]
+        label_path = file_info["label"]
+        x = nib.load(image_path).get_fdata()
+        y = nib.load(label_path).get_fdata()
 
         # 可視化を実行
         vis_dir = tmp_path / "save_test_vis"
