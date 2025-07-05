@@ -11,3 +11,5 @@ wheels/
 outputs/
 experiment.ipynb
 visualize_output/
+BTCV/RawData/
+BTCV/dataset.json
