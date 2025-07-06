@@ -14,7 +14,7 @@ from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.networks.nets import UNETR, SwinUNETR, VNet
 from monai.transforms import (
-    AsDiscreted,
+    AsDiscrete,
     Compose,
     CropForegroundd,
     EnsureTyped,
@@ -339,8 +339,8 @@ if __name__ == "__main__":
     scaler = torch.GradScaler("cuda")
     max_iterations = args.max_iterations
     eval_num = 500
-    post_label = AsDiscreted(to_onehot=args.out_channel)
-    post_pred = AsDiscreted(argmax=True, to_onehot=args.out_channel)
+    post_label = AsDiscrete(to_onehot=args.out_channel)
+    post_pred = AsDiscrete(argmax=True, to_onehot=args.out_channel)
     dice_metric = DiceMetric(
         include_background=True, reduction="mean", get_not_nans=False
     )
