@@ -293,9 +293,6 @@ if __name__ == "__main__":
     )
     p.add_argument("--out_dir", type=str, help="Output directory")
     args = p.parse_args()
-    training_log_path = os.path.join(args.out_dir, "training_log.txt")
-    with open(training_log_path, "w") as f:
-        f.write(str(args) + "\n")
     pretraining_state = "fine_tuning"
     if not args.pretrained_model:
         pretraining_state = "training_from_scratch"
@@ -306,6 +303,9 @@ if __name__ == "__main__":
             pretraining_state,
             time.strftime("%Y%m%d_%H%M%S"),
         )
+    training_log_path = os.path.join(args.out_dir, "training_log.txt")
+    with open(training_log_path, "w") as f:
+        f.write(str(args) + "\n")
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
 
