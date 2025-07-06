@@ -5,7 +5,7 @@ import time
 import torch
 from monai.data import (
     CacheDataset,
-    DataLoader,
+    ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
 )
@@ -124,8 +124,11 @@ def make_data_loder(
         cache_rate=1.0,
         num_workers=8,
     )
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True
+    train_loader = ThreadDataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
     )
     val_ds = CacheDataset(
         data=val_files,
@@ -134,8 +137,8 @@ def make_data_loder(
         cache_rate=1.0,
         num_workers=4,
     )
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True
+    val_loader = ThreadDataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, num_workers=0
     )
     return train_loader, val_loader
 
