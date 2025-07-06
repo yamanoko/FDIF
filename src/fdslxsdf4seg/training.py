@@ -303,11 +303,13 @@ if __name__ == "__main__":
             pretraining_state,
             time.strftime("%Y%m%d_%H%M%S"),
         )
-    training_log_path = os.path.join(args.out_dir, "training_log.txt")
-    with open(training_log_path, "w") as f:
-        f.write(str(args) + "\n")
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
+    training_log_path = os.path.join(out_dir, "training_log.txt")
+    with open(training_log_path, "w") as f:
+        f.write(str(args) + "\n")
+    print(f"Training log will be saved to {training_log_path}")
+    print(f"Output directory: {out_dir}")
 
     grid_size = tuple(args.grid_size)
     train_loader, val_loader = make_data_loder(
@@ -316,6 +318,8 @@ if __name__ == "__main__":
         spatial_size=grid_size,
         batch_size=args.batch_size,
     )
+    print(f"Training data loader created with {len(train_loader.dataset)} samples.")
+    print(f"Validation data loader created with {len(val_loader.dataset)} samples.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = create_model(
         model_name=args.model_name,
@@ -324,6 +328,11 @@ if __name__ == "__main__":
         feature_size=args.feature_size,
         pretrained_path=args.pretrained_model,
     )
+    print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
+    if args.pretrained_model:
+        print(f"Loading pretrained model from {args.pretrained_model}")
+    else:
+        print("Training from scratch, no pretrained model loaded.")
     model = model.to(device)
     loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), 1e-4, weight_decay=1e-5)
@@ -340,6 +349,7 @@ if __name__ == "__main__":
     global_step_best = 0
     epoch_loss_values = []
     metric_values = []
+    print("Starting training...")
     time_start = time.time()
     while global_step < max_iterations:
         global_step, dice_val_best, global_step_best = train(
