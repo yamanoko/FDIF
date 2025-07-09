@@ -12,7 +12,9 @@ from monai.data import (
 from monai.inferers import sliding_window_inference
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
+from monai.networks.blocks import UnetOutBlock
 from monai.networks.nets import UNETR, SwinUNETR, VNet
+from monai.networks.nets.vnet import OutputTransition
 from monai.transforms import (
     AsDiscrete,
     Compose,
@@ -144,22 +146,58 @@ def make_data_loder(
 
 
 def create_model(
-    model_name, grid_size, out_channel, feature_size, pretrained_path=None
+    model_name,
+    grid_size,
+    out_channel,
+    feature_size,
+    pretrained_path=None,
+    pretraining_out_channel=14,
 ):
     if model_name == "vnet":
-        model = VNet(
-            in_channels=1,
-            out_channels=out_channel,
-            spatial_dims=3,
-        )
+        if pretrained_path:
+            weights = torch.load(pretrained_path, weights_only=True)
+            model = VNet(
+                in_channels=1,
+                out_channels=pretraining_out_channel,
+                spatial_dims=3,
+            )
+            model.load_from(weights=weights)
+            model.out_tr = OutputTransition(
+                3, 32, out_channel, ("elu", {"inplace": True}), False
+            )
+            print(f"Model {model_name} loaded from {pretrained_path}")
+        else:
+            model = VNet(
+                in_channels=1,
+                out_channels=out_channel,
+                spatial_dims=3,
+            )
+
     elif model_name == "unetr":
-        model = UNETR(
-            in_channels=1,
-            out_channels=out_channel,
-            img_size=grid_size,
-            spatial_dims=3,
-            feature_size=feature_size or 16,
-        )
+        if pretrained_path:
+            weights = torch.load(pretrained_path, weights_only=True)
+            model = UNETR(
+                in_channels=1,
+                out_channels=pretraining_out_channel,
+                img_size=grid_size,
+                spatial_dims=3,
+                feature_size=feature_size or 16,
+            )
+            model.load_from(weights=weights)
+            model.out = UnetOutBlock(
+                spatial_dims=3,
+                in_channels=feature_size or 16,
+                out_channels=out_channel,
+            )
+            print(f"Model {model_name} loaded from {pretrained_path}")
+        else:
+            model = UNETR(
+                in_channels=1,
+                out_channels=out_channel,
+                img_size=grid_size,
+                spatial_dims=3,
+                feature_size=feature_size or 16,
+            )
     elif model_name == "swin_unetr":
         model = SwinUNETR(
             in_channels=1,
@@ -168,13 +206,12 @@ def create_model(
             spatial_dims=3,
             feature_size=feature_size or 48,
         )
+        if pretrained_path:
+            weights = torch.load(pretrained_path, weights_only=True)
+            model.load_from(weights=weights)
+            print(f"Model {model_name} loaded from {pretrained_path}")
     else:
         raise ValueError(f"Unknown model name: {model_name}")
-
-    if pretrained_path:
-        weights = torch.load(pretrained_path, weights_only=True)
-        model.load_from(weights=weights)
-        print(f"Model {model_name} loaded from {pretrained_path}")
     return model
 
 
@@ -277,6 +314,12 @@ if __name__ == "__main__":
     )
     p.add_argument("--pretrained_model", type=str, help="Path to the pretrained model")
     p.add_argument(
+        "--pretraing_out_channel",
+        type=int,
+        default=14,
+        help="Output channel size for pretrained model",
+    )
+    p.add_argument(
         "--grid_size",
         type=int,
         nargs="+",
@@ -330,6 +373,7 @@ if __name__ == "__main__":
         out_channel=args.out_channel,
         feature_size=args.feature_size,
         pretrained_path=args.pretrained_model,
+        pretraining_out_channel=args.pretraing_out_channel,
     )
     print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
     if args.pretrained_model:
