@@ -161,7 +161,7 @@ def create_model(
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
             )
-            model.load_state_dict(weights=weights)
+            model.load_state_dict(weights)
             model.out_tr = OutputTransition(
                 3, 32, out_channel, ("elu", {"inplace": True}), False
             )
@@ -183,7 +183,7 @@ def create_model(
                 spatial_dims=3,
                 feature_size=feature_size or 16,
             )
-            model.load_state_dict(weights=weights)
+            model.load_state_dict(weights)
             model.out = UnetOutBlock(
                 spatial_dims=3,
                 in_channels=feature_size or 16,
