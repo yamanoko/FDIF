@@ -373,7 +373,7 @@ if __name__ == "__main__":
         out_channel=args.out_channel,
         feature_size=args.feature_size,
         pretrained_path=args.pretrained_model,
-        pretraining_out_channel=args.pretraing_out_channel,
+        pretraining_out_channel=args.pretraining_out_channel,
     )
     print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
     if args.pretrained_model:
