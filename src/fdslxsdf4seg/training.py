@@ -218,7 +218,7 @@ def create_model(
     return model
 
 
-def validation(epoch_iterator_val, global_step, training_log_path):
+def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
     model.eval()
     with torch.no_grad():
         for batch in epoch_iterator_val:
@@ -237,18 +237,31 @@ def validation(epoch_iterator_val, global_step, training_log_path):
             epoch_iterator_val.set_description(
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
-        mean_dice_val = dice_metric.aggregate().item()
+
+        # Get per-class dice scores
+        dice_scores = dice_metric.aggregate()
+        mean_dice_val = torch.mean(dice_scores).item()
         dice_metric.reset()
 
         # Log evaluation results
         with open(training_log_path, "a") as f:
             f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
+            # Log per-class dice scores
+            for class_idx in range(out_channel):
+                f.write(
+                    f"Step {global_step}: Class {class_idx} Dice Score: {dice_scores[class_idx].item():.6f}\n"
+                )
 
-    return mean_dice_val
+    return mean_dice_val, dice_scores
 
 
 def train(
-    global_step, train_loader, dice_val_best, global_step_best, training_log_path
+    global_step,
+    train_loader,
+    dice_val_best,
+    global_step_best,
+    training_log_path,
+    out_channel=14,
 ):
     model.train()
     epoch_loss = 0
@@ -277,7 +290,9 @@ def train(
             epoch_iterator_val = tqdm(
                 val_loader, desc="Validate (X / X Steps) (dice=X.X)", dynamic_ncols=True
             )
-            dice_val = validation(epoch_iterator_val, global_step, training_log_path)
+            dice_val, dice_scores = validation(
+                epoch_iterator_val, global_step, training_log_path, out_channel
+            )
             epoch_loss /= step
             epoch_loss_values.append(epoch_loss)
             metric_values.append(dice_val)
@@ -297,6 +312,18 @@ def train(
                         dice_val_best, dice_val
                     )
                 )
+
+                # Log detailed per-class dice scores for the best model
+                with open(training_log_path, "a") as f:
+                    f.write(f"*** BEST MODEL SAVED at Step {global_step} ***\n")
+                    f.write(f"Best Average Dice Score: {dice_val_best:.6f}\n")
+                    f.write("Per-class Dice Scores for Best Model:\n")
+                    for class_idx in range(out_channel):
+                        f.write(
+                            f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
+                        )
+                    f.write("=" * 50 + "\n")
+
             else:
                 print(
                     "Model Was Not Saved ! Current Best Avg. Dice: {} Current Avg. Dice: {}".format(
@@ -602,6 +629,7 @@ if __name__ == "__main__":
             dice_val_best,
             global_step_best,
             training_log_path,
+            args.out_channel,
         )
     time_end = time.time()
     print(
