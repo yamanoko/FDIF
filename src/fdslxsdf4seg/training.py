@@ -1,7 +1,10 @@
 import argparse
+import json
 import os
 import time
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from monai.data import (
     CacheDataset,
@@ -215,7 +218,7 @@ def create_model(
     return model
 
 
-def validation(epoch_iterator_val):
+def validation(epoch_iterator_val, global_step, training_log_path):
     model.eval()
     with torch.no_grad():
         for batch in epoch_iterator_val:
@@ -236,10 +239,17 @@ def validation(epoch_iterator_val):
             )  # noqa: B038
         mean_dice_val = dice_metric.aggregate().item()
         dice_metric.reset()
+
+        # Log evaluation results
+        with open(training_log_path, "a") as f:
+            f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
+
     return mean_dice_val
 
 
-def train(global_step, train_loader, dice_val_best, global_step_best):
+def train(
+    global_step, train_loader, dice_val_best, global_step_best, training_log_path
+):
     model.train()
     epoch_loss = 0
     step = 0
@@ -267,10 +277,15 @@ def train(global_step, train_loader, dice_val_best, global_step_best):
             epoch_iterator_val = tqdm(
                 val_loader, desc="Validate (X / X Steps) (dice=X.X)", dynamic_ncols=True
             )
-            dice_val = validation(epoch_iterator_val)
+            dice_val = validation(epoch_iterator_val, global_step, training_log_path)
             epoch_loss /= step
             epoch_loss_values.append(epoch_loss)
             metric_values.append(dice_val)
+
+            # Log training results
+            with open(training_log_path, "a") as f:
+                f.write(f"Step {global_step}: Training Loss: {epoch_loss:.6f}\n")
+
             if dice_val > dice_val_best:
                 dice_val_best = dice_val
                 global_step_best = global_step
@@ -290,6 +305,169 @@ def train(global_step, train_loader, dice_val_best, global_step_best):
                 )
         global_step += 1
     return global_step, dice_val_best, global_step_best
+
+
+def perform_inference_and_visualize(model, val_loader, out_dir, device, grid_size):
+    """Perform inference on validation data and create visualizations."""
+    model.eval()
+
+    # Get one validation sample
+    val_batch = next(iter(val_loader))
+    val_inputs = val_batch["image"].to(device)
+    val_labels = val_batch["label"].to(device)
+
+    with torch.no_grad():
+        # Perform inference
+        with torch.autocast("cuda"):
+            val_outputs = sliding_window_inference(val_inputs, grid_size, 4, model)
+
+        # Convert to predictions
+        val_outputs_softmax = torch.softmax(val_outputs, 1)
+        val_predictions = torch.argmax(val_outputs_softmax, dim=1)
+
+        # Calculate Dice score for this sample
+        from monai.metrics import compute_dice
+
+        dice_scores = compute_dice(
+            val_outputs_softmax, val_labels, include_background=True
+        )
+        mean_dice = torch.mean(dice_scores).item()
+
+        print(f"Sample Dice Score: {mean_dice:.4f}")
+
+        # Move to CPU and convert to numpy
+        image = val_inputs[0, 0].cpu().numpy()  # First channel, first batch
+        label = val_labels[0, 0].cpu().numpy()  # First channel, first batch
+        prediction = val_predictions[0].cpu().numpy()  # First batch
+
+        # Create visualization
+        create_slice_visualization(image, label, prediction, out_dir, mean_dice)
+
+
+def create_slice_visualization(image, label, prediction, out_dir, dice_score=None):
+    """Create and save slice visualizations comparing predictions and labels."""
+    # Get middle slices for visualization
+    depth = image.shape[2]
+    middle_slice = depth // 2
+
+    # Get slices
+    image_slice = image[:, :, middle_slice]
+    label_slice = label[:, :, middle_slice]
+    pred_slice = prediction[:, :, middle_slice]
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    title = "Inference Results - Middle Slice"
+    if dice_score is not None:
+        title += f" (Dice: {dice_score:.4f})"
+    fig.suptitle(title, fontsize=16)
+
+    # Original image
+    axes[0].imshow(image_slice, cmap="gray")
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
+
+    # Ground truth label
+    im1 = axes[1].imshow(label_slice, cmap="jet", alpha=0.8)
+    axes[1].set_title("Ground Truth Label")
+    axes[1].axis("off")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    # Prediction
+    im2 = axes[2].imshow(pred_slice, cmap="jet", alpha=0.8)
+    axes[2].set_title("Prediction")
+    axes[2].axis("off")
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    # Overlay: Image + Prediction
+    axes[3].imshow(image_slice, cmap="gray")
+    axes[3].imshow(pred_slice, cmap="jet", alpha=0.5)
+    axes[3].set_title("Image + Prediction Overlay")
+    axes[3].axis("off")
+
+    plt.tight_layout()
+
+    # Save the visualization
+    viz_path = os.path.join(out_dir, "inference_visualization.png")
+    plt.savefig(viz_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Inference visualization saved to: {viz_path}")
+
+    # Also create axial, coronal, and sagittal views
+    create_multi_plane_visualization(image, label, prediction, out_dir, dice_score)
+
+
+def create_multi_plane_visualization(
+    image, label, prediction, out_dir, dice_score=None
+):
+    """Create visualizations across different anatomical planes."""
+    # Get middle slices for each plane
+    height, width, depth = image.shape
+
+    # Axial (xy plane)
+    axial_slice = depth // 2
+    image_axial = image[:, :, axial_slice]
+    label_axial = label[:, :, axial_slice]
+    pred_axial = prediction[:, :, axial_slice]
+
+    # Coronal (xz plane)
+    coronal_slice = width // 2
+    image_coronal = image[:, coronal_slice, :]
+    label_coronal = label[:, coronal_slice, :]
+    pred_coronal = prediction[:, coronal_slice, :]
+
+    # Sagittal (yz plane)
+    sagittal_slice = height // 2
+    image_sagittal = image[sagittal_slice, :, :]
+    label_sagittal = label[sagittal_slice, :, :]
+    pred_sagittal = prediction[sagittal_slice, :, :]
+
+    # Create comprehensive visualization
+    fig, axes = plt.subplots(3, 4, figsize=(20, 15))
+    title = "Multi-Plane Inference Results"
+    if dice_score is not None:
+        title += f" (Dice: {dice_score:.4f})"
+    fig.suptitle(title, fontsize=16)
+
+    planes = [
+        ("Axial", image_axial, label_axial, pred_axial),
+        ("Coronal", image_coronal, label_coronal, pred_coronal),
+        ("Sagittal", image_sagittal, label_sagittal, pred_sagittal),
+    ]
+
+    for i, (plane_name, img, lbl, pred) in enumerate(planes):
+        # Original image
+        axes[i, 0].imshow(img, cmap="gray")
+        axes[i, 0].set_title(f"{plane_name} - Image")
+        axes[i, 0].axis("off")
+
+        # Ground truth
+        im1 = axes[i, 1].imshow(lbl, cmap="jet", alpha=0.8)
+        axes[i, 1].set_title(f"{plane_name} - Ground Truth")
+        axes[i, 1].axis("off")
+        plt.colorbar(im1, ax=axes[i, 1], fraction=0.046, pad=0.04)
+
+        # Prediction
+        im2 = axes[i, 2].imshow(pred, cmap="jet", alpha=0.8)
+        axes[i, 2].set_title(f"{plane_name} - Prediction")
+        axes[i, 2].axis("off")
+        plt.colorbar(im2, ax=axes[i, 2], fraction=0.046, pad=0.04)
+
+        # Overlay
+        axes[i, 3].imshow(img, cmap="gray")
+        axes[i, 3].imshow(pred, cmap="jet", alpha=0.5)
+        axes[i, 3].set_title(f"{plane_name} - Overlay")
+        axes[i, 3].axis("off")
+
+    plt.tight_layout()
+
+    # Save the multi-plane visualization
+    multiplane_path = os.path.join(out_dir, "inference_multiplane_visualization.png")
+    plt.savefig(multiplane_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Multi-plane visualization saved to: {multiplane_path}")
 
 
 if __name__ == "__main__":
@@ -396,17 +574,61 @@ if __name__ == "__main__":
     global_step_best = 0
     epoch_loss_values = []
     metric_values = []
+    step_values = []  # Track steps for plotting
     print("Starting training...")
     time_start = time.time()
     while global_step < max_iterations:
         global_step, dice_val_best, global_step_best = train(
-            global_step, train_loader, dice_val_best, global_step_best
+            global_step,
+            train_loader,
+            dice_val_best,
+            global_step_best,
+            training_log_path,
         )
     time_end = time.time()
     print(
         f"Training completed in {time_end - time_start:.2f} seconds. Best Dice: {dice_val_best:.4f} at step {global_step_best}."
     )
+
+    # Save training metrics for visualization
+    metrics_data = {
+        "training_loss": epoch_loss_values,
+        "validation_dice": metric_values,
+        "steps": list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
+    }
+
+    # Save as numpy arrays
+    np.save(os.path.join(out_dir, "training_loss.npy"), np.array(epoch_loss_values))
+    np.save(os.path.join(out_dir, "validation_dice.npy"), np.array(metric_values))
+    np.save(os.path.join(out_dir, "steps.npy"), np.array(metrics_data["steps"]))
+
+    # Save as JSON for easy reading
+    with open(os.path.join(out_dir, "training_metrics.json"), "w") as f:
+        json.dump(metrics_data, f, indent=2)
+
     with open(training_log_path, "a") as f:
         f.write(
             f"Training completed in {time_end - time_start:.2f} seconds. Best Dice: {dice_val_best:.4f} at step {global_step_best}.\n"
         )
+        f.write("Training metrics saved to:\n")
+        f.write("  - training_loss.npy\n")
+        f.write("  - validation_dice.npy\n")
+        f.write("  - steps.npy\n")
+        f.write("  - training_metrics.json\n")
+
+    # Perform inference and visualize results
+    print("Performing inference with best model...")
+    # Load the best model
+    best_model_path = os.path.join(out_dir, "best_metric_model.pth")
+    if os.path.exists(best_model_path):
+        model.load_state_dict(torch.load(best_model_path, weights_only=True))
+        print(f"Loaded best model from {best_model_path}")
+    else:
+        print("Best model not found, using current model for inference")
+
+    perform_inference_and_visualize(model, val_loader, out_dir, device, grid_size)
+
+    with open(training_log_path, "a") as f:
+        f.write("Inference visualizations saved to:\n")
+        f.write("  - inference_visualization.png\n")
+        f.write("  - inference_multiplane_visualization.png\n")
