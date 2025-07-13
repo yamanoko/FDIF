@@ -307,7 +307,9 @@ def train(
     return global_step, dice_val_best, global_step_best
 
 
-def perform_inference_and_visualize(model, val_loader, out_dir, device, grid_size):
+def perform_inference_and_visualize(
+    model, val_loader, out_dir, device, grid_size, out_channel
+):
     """Perform inference on validation data and create visualizations."""
     model.eval()
 
@@ -341,10 +343,14 @@ def perform_inference_and_visualize(model, val_loader, out_dir, device, grid_siz
         prediction = val_predictions[0].cpu().numpy()  # First batch
 
         # Create visualization
-        create_slice_visualization(image, label, prediction, out_dir, mean_dice)
+        create_slice_visualization(
+            image, label, prediction, out_dir, mean_dice, out_channel
+        )
 
 
-def create_slice_visualization(image, label, prediction, out_dir, dice_score=None):
+def create_slice_visualization(
+    image, label, prediction, out_dir, dice_score=None, out_channel=14
+):
     """Create and save slice visualizations comparing predictions and labels."""
     # Get middle slices for visualization
     depth = image.shape[2]
@@ -354,6 +360,11 @@ def create_slice_visualization(image, label, prediction, out_dir, dice_score=Non
     image_slice = image[:, :, middle_slice]
     label_slice = label[:, :, middle_slice]
     pred_slice = prediction[:, :, middle_slice]
+
+    # Use fixed value range for consistent color mapping across all data
+    # This ensures 0 is always black, and higher values have consistent colors
+    vmin = 0
+    vmax = out_channel - 1  # Maximum possible class index
 
     # Create figure with subplots
     fig, axes = plt.subplots(1, 4, figsize=(20, 5))
@@ -367,21 +378,21 @@ def create_slice_visualization(image, label, prediction, out_dir, dice_score=Non
     axes[0].set_title("Original Image")
     axes[0].axis("off")
 
-    # Ground truth label
-    im1 = axes[1].imshow(label_slice, cmap="jet", alpha=0.8)
+    # Ground truth label with consistent color range
+    im1 = axes[1].imshow(label_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
     axes[1].set_title("Ground Truth Label")
     axes[1].axis("off")
     plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
-    # Prediction
-    im2 = axes[2].imshow(pred_slice, cmap="jet", alpha=0.8)
+    # Prediction with consistent color range
+    im2 = axes[2].imshow(pred_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
     axes[2].set_title("Prediction")
     axes[2].axis("off")
     plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
-    # Overlay: Image + Prediction
+    # Overlay: Image + Prediction with consistent color range
     axes[3].imshow(image_slice, cmap="gray")
-    axes[3].imshow(pred_slice, cmap="jet", alpha=0.5)
+    axes[3].imshow(pred_slice, cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
     axes[3].set_title("Image + Prediction Overlay")
     axes[3].axis("off")
 
@@ -395,11 +406,13 @@ def create_slice_visualization(image, label, prediction, out_dir, dice_score=Non
     print(f"Inference visualization saved to: {viz_path}")
 
     # Also create axial, coronal, and sagittal views
-    create_multi_plane_visualization(image, label, prediction, out_dir, dice_score)
+    create_multi_plane_visualization(
+        image, label, prediction, out_dir, dice_score, out_channel
+    )
 
 
 def create_multi_plane_visualization(
-    image, label, prediction, out_dir, dice_score=None
+    image, label, prediction, out_dir, dice_score=None, out_channel=14
 ):
     """Create visualizations across different anatomical planes."""
     # Get middle slices for each plane
@@ -423,6 +436,11 @@ def create_multi_plane_visualization(
     label_sagittal = label[sagittal_slice, :, :]
     pred_sagittal = prediction[sagittal_slice, :, :]
 
+    # Use fixed value range for consistent color mapping across all data
+    # This ensures 0 is always black, and higher values have consistent colors
+    vmin = 0
+    vmax = out_channel - 1  # Maximum possible class index
+
     # Create comprehensive visualization
     fig, axes = plt.subplots(3, 4, figsize=(20, 15))
     title = "Multi-Plane Inference Results"
@@ -442,21 +460,21 @@ def create_multi_plane_visualization(
         axes[i, 0].set_title(f"{plane_name} - Image")
         axes[i, 0].axis("off")
 
-        # Ground truth
-        im1 = axes[i, 1].imshow(lbl, cmap="jet", alpha=0.8)
+        # Ground truth with consistent color range
+        im1 = axes[i, 1].imshow(lbl, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
         axes[i, 1].set_title(f"{plane_name} - Ground Truth")
         axes[i, 1].axis("off")
         plt.colorbar(im1, ax=axes[i, 1], fraction=0.046, pad=0.04)
 
-        # Prediction
-        im2 = axes[i, 2].imshow(pred, cmap="jet", alpha=0.8)
+        # Prediction with consistent color range
+        im2 = axes[i, 2].imshow(pred, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
         axes[i, 2].set_title(f"{plane_name} - Prediction")
         axes[i, 2].axis("off")
         plt.colorbar(im2, ax=axes[i, 2], fraction=0.046, pad=0.04)
 
-        # Overlay
+        # Overlay with consistent color range
         axes[i, 3].imshow(img, cmap="gray")
-        axes[i, 3].imshow(pred, cmap="jet", alpha=0.5)
+        axes[i, 3].imshow(pred, cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
         axes[i, 3].set_title(f"{plane_name} - Overlay")
         axes[i, 3].axis("off")
 
@@ -626,7 +644,9 @@ if __name__ == "__main__":
     else:
         print("Best model not found, using current model for inference")
 
-    perform_inference_and_visualize(model, val_loader, out_dir, device, grid_size)
+    perform_inference_and_visualize(
+        model, val_loader, out_dir, device, grid_size, args.out_channel
+    )
 
     with open(training_log_path, "a") as f:
         f.write("Inference visualizations saved to:\n")
