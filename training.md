@@ -49,11 +49,23 @@ python training.py \
 | `--pretrained_model` | - | None | 事前訓練済みモデルのパス |
 | `--pretraining_out_channel` | - | 14 | 事前訓練モデルの出力チャンネル数 |
 | `--grid_size` | - | [96,96,96] | 入力グリッドサイズ |
-| `--out_channel` | - | 14 | 出力チャンネル数（クラス数+1） |
+| `--out_channel` | - | 14 | 出力チャンネル数（クラス数+1、背景含む） |
 | `--feature_size` | - | 自動設定 | 特徴量サイズ |
 | `--batch_size` | - | 1 | バッチサイズ |
 | `--max_iterations` | - | 30000 | 最大訓練イテレーション数 |
 | `--out_dir` | - | 自動生成 | 出力ディレクトリ |
+
+### 出力チャンネル数の設定
+
+プリミティブ選択により出力チャンネル数が変わります：
+
+| プリミティブ構成 | 出力チャンネル数 | 例 |
+|-----------------|----------------|-----|
+| 単一プリミティブ | 2 | `--primitives sphere --out_channel 2` |
+| 2種類プリミティブ | 3 | `--primitives sphere box --out_channel 3` |
+| 3種類プリミティブ | 4 | `--primitives sphere box cylinder --out_channel 4` |
+| 全プリミティブ | 5 | `--primitives sphere box cylinder torus --out_channel 5` |
+| 実データ（BTCV） | 14 | `--is_real_data --out_channel 14` |
 
 ### 使用例
 
@@ -100,6 +112,23 @@ python training.py \
     --max_iterations 50000
 ```
 
+#### 5. 特定プリミティブデータでの訓練
+```bash
+# 単一プリミティブデータ（2クラス: 背景+プリミティブ）
+python training.py \
+    --data_json_path ./sphere_only_dataset/data/data.json \
+    --model_name vnet \
+    --out_channel 2 \
+    --grid_size 64 64 64
+
+# 複数プリミティブデータ（3クラス: 背景+2プリミティブ）
+python training.py \
+    --data_json_path ./sphere_box_dataset/data/data.json \
+    --model_name swin_unetr \
+    --out_channel 3 \
+    --grid_size 96 96 96
+```
+
 ## データ要件
 
 ### データセットJSON形式
@@ -121,6 +150,20 @@ python training.py \
 - **次元**: 3D (D × H × W)
 - **画像**: グレースケール強度値
 - **ラベル**: 整数値クラスID（0=背景、1-N=各クラス）
+
+### プリミティブ選択によるクラス数変更
+
+生成データセットの使用プリミティブによってクラス数が変わります：
+
+```bash
+# 例：sphere、boxのみ使用した場合
+# クラス: 0=背景, 1=sphere, 2=box → 3クラス
+--out_channel 3
+
+# 例：全プリミティブ使用した場合  
+# クラス: 0=背景, 1=sphere, 2=box, 3=cylinder, 4=torus → 5クラス
+--out_channel 5
+```
 
 ## 出力構造
 
@@ -245,7 +288,7 @@ output_directory/
 
 ### 合成データ（SDF）
 - **データサイズ**: 64³
-- **クラス数**: 4-5
+- **クラス数**: 2-5（使用プリミティブ数+1）
 - **期待Dice**: 0.85-0.95
 - **訓練時間**: 1-2時間（RTX 3080）
 
@@ -254,3 +297,12 @@ output_directory/
 - **クラス数**: 14
 - **期待Dice**: 0.75-0.85
 - **訓練時間**: 8-12時間（RTX 3080）
+
+### 段階的学習の期待性能
+
+| 学習段階 | プリミティブ数 | クラス数 | 期待Dice | 訓練時間 |
+|---------|---------------|---------|---------|---------|
+| レベル1 | 1種類 | 2 | 0.90-0.95 | 30分 |
+| レベル2 | 2種類 | 3 | 0.88-0.93 | 45分 |
+| レベル3 | 3種類 | 4 | 0.87-0.92 | 1時間 |
+| レベル4 | 4種類 | 5 | 0.85-0.90 | 1.5時間 |
