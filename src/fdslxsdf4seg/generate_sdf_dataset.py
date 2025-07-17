@@ -36,9 +36,9 @@ class SDFObject:
             # 中心座標を指定する場合は平行移動行列を設定
             t_x, t_y, t_z = center
         else:
-            t_x = random.uniform(-0.2, 0.2) * grid_size[0]
-            t_y = random.uniform(-0.2, 0.2) * grid_size[1]
-            t_z = random.uniform(-0.2, 0.2) * grid_size[2]
+            t_x = random.uniform(-0.3, 0.3) * grid_size[0]
+            t_y = random.uniform(-0.3, 0.3) * grid_size[1]
+            t_z = random.uniform(-0.3, 0.3) * grid_size[2]
         T = self.tranlate_matrix(t_x, t_y, t_z)
         if transform:
             # 回転角度を生成
@@ -290,7 +290,6 @@ class Torus(SDFObject):
         return self.R + self.r
 
 
-# --- データセット ---
 class SDFSegmentationDataset(Dataset):
     def __init__(
         self,
@@ -299,6 +298,7 @@ class SDFSegmentationDataset(Dataset):
         min_objects: int = 2,
         max_objects: int = 5,
         device: torch.device = None,
+        primitives: List[str] = None,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -311,16 +311,30 @@ class SDFSegmentationDataset(Dataset):
         xs = torch.linspace(-self.W / 2, self.W / 2 - 1, self.W, device=self.device)
         self.Z, self.Y, self.X = torch.meshgrid(zs, ys, xs, indexing="ij")
 
-        primitives = [Sphere, Box, Cylinder, Torus]
+        # プリミティブの名前とクラスのマッピング
+        all_primitives = {
+            "sphere": Sphere,
+            "box": Box,
+            "cylinder": Cylinder,
+            "torus": Torus,
+        }
+
+        # 使用するプリミティブを選択（デフォルトは全て）
+        if primitives is None:
+            primitives = list(all_primitives.keys())
+
+        # 選択されたプリミティブのみを使用
+        selected_primitives = [
+            all_primitives[name] for name in primitives if name in all_primitives
+        ]
+
         # class_id, primitive_class
         # 1から始まるIDを割り当てる
         self.primitive_classes = {
-            i + 1: primitive for i, primitive in enumerate(primitives)
+            i + 1: primitive for i, primitive in enumerate(selected_primitives)
         }
         self.min_o = max(1, min_objects)  # 最小オブジェクト数は1以上
-        self.max_o = min(
-            max_objects, len(self.primitive_classes)
-        )  # 最大オブジェクト数はクラス数以下
+        self.max_o = max_objects  # 最大オブジェクト数の制限を削除
 
     def __len__(self):
         return self.num_volumes
@@ -329,7 +343,7 @@ class SDFSegmentationDataset(Dataset):
         n_objs = random.randint(self.min_o, self.max_o)
         sdfs = []
         max_ds = []
-        primitive_ids = random.sample(list(self.primitive_classes.keys()), n_objs)
+        primitive_ids = random.choices(list(self.primitive_classes.keys()), k=n_objs)
         for id in primitive_ids:
             PrimClass = self.primitive_classes[id]
             obj = PrimClass(grid_size=[self.D, self.H, self.W], device=self.device)
@@ -383,6 +397,7 @@ def generate_and_save(
     max_objects: int,
     seed: int = None,
     num_val_samples: int = 0,
+    primitives: List[str] = None,
 ):
     if seed is not None:
         random.seed(seed)
@@ -396,6 +411,7 @@ def generate_and_save(
         num_volumes=num_samples + num_val_samples,
         min_objects=min_objects,
         max_objects=max_objects,
+        primitives=primitives,
     )
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
@@ -549,6 +565,13 @@ if __name__ == "__main__":
     p.add_argument("--max_objects", type=int, default=5)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument(
+        "--primitives",
+        nargs="*",
+        default=["sphere", "box", "cylinder", "torus"],
+        choices=["sphere", "box", "cylinder", "torus"],
+        help="Primitive types to use for generation (default: all primitives)",
+    )
+    p.add_argument(
         "--num_visualize", type=int, default=0, help="Number of samples to visualize"
     )
     args = p.parse_args()
@@ -569,6 +592,7 @@ if __name__ == "__main__":
         f.write(f"Number of samples: {args.num_samples}\n")
         f.write(f"Min objects per sample: {args.min_objects}\n")
         f.write(f"Max objects per sample: {args.max_objects}\n")
+        f.write(f"Primitives used: {', '.join(args.primitives)}\n")
         if args.seed is not None:
             f.write(f"Seed: {args.seed}\n")
 
@@ -578,6 +602,7 @@ if __name__ == "__main__":
     print(f"  Number of samples: {args.num_samples}")
     print(f"  Min objects per sample: {args.min_objects}")
     print(f"  Max objects per sample: {args.max_objects}")
+    print(f"  Primitives used: {', '.join(args.primitives)}")
     time_start = time.time()
 
     data_output_dir = os.path.join(args.out_dir, "data")
@@ -590,6 +615,7 @@ if __name__ == "__main__":
         min_objects=args.min_objects,
         max_objects=args.max_objects,
         seed=args.seed,
+        primitives=args.primitives,
     )
 
     time_end = time.time()

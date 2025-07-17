@@ -12,18 +12,24 @@
 - **円柱（Cylinder）**: ランダムな半径と高さの円柱
 - **トーラス（Torus）**: ランダムな大半径・小半径のトーラス
 
-### 2. 変換機能
+### 2. プリミティブ選択機能
+- **全プリミティブ使用**: デフォルトで4種類すべてのプリミティブを使用
+- **選択的使用**: 特定のプリミティブのみを選択して使用可能
+- **複数インスタンス**: 同じプリミティブの複数インスタンスを生成可能
+- **動的クラス数**: 選択したプリミティブ数に応じてセグメンテーションクラス数が変動
+
+### 3. 変換機能
 - **平行移動**: オブジェクトのランダムな位置配置
 - **回転**: X、Y、Z軸周りのランダム回転
 - **せん断**: ランダムなせん断変形
 
-### 3. データセット生成
+### 4. データセット生成
 - 複数のオブジェクトを含む3Dボリュームの生成
 - SDF値に基づく強度画像の生成
 - オブジェクトIDベースのセグメンテーションマスクの生成
 - NIfTI形式での保存
 
-### 4. 可視化機能
+### 5. 可視化機能
 - Plotlyを使用した3D可視化
 - スライス画像の生成
 - インタラクティブなHTML出力
@@ -48,6 +54,7 @@ python generate_sdf_dataset.py --out_dir ./output --num_samples 100
 | `--num_val_samples` | 0 | 生成する検証サンプル数 |
 | `--min_objects` | 2 | 1サンプルあたりの最小オブジェクト数 |
 | `--max_objects` | 5 | 1サンプルあたりの最大オブジェクト数 |
+| `--primitives` | 全プリミティブ | 使用するプリミティブ（`sphere`, `box`, `cylinder`, `torus`） |
 | `--seed` | None | 乱数シード（再現性のため） |
 | `--num_visualize` | 0 | 可視化するサンプル数 |
 
@@ -72,6 +79,47 @@ python generate_sdf_dataset.py \
     --num_samples 100 \
     --num_visualize 10 \
     --seed 42
+```
+
+#### 3. 特定のプリミティブのみを使用
+```bash
+# 球体とボックスのみを使用
+python generate_sdf_dataset.py \
+    --out_dir ./sphere_box_dataset \
+    --primitives sphere box \
+    --num_samples 300 \
+    --max_objects 6
+
+# 単一プリミティブ（円柱のみ）
+python generate_sdf_dataset.py \
+    --out_dir ./cylinder_only_dataset \
+    --primitives cylinder \
+    --num_samples 200 \
+    --max_objects 8
+```
+
+#### 4. 段階的学習用データセット
+```bash
+# レベル1: 単一プリミティブ
+python generate_sdf_dataset.py \
+    --out_dir ./level1_simple \
+    --primitives sphere \
+    --max_objects 3 \
+    --num_samples 200
+
+# レベル2: 複数プリミティブ
+python generate_sdf_dataset.py \
+    --out_dir ./level2_medium \
+    --primitives sphere box \
+    --max_objects 5 \
+    --num_samples 300
+
+# レベル3: 全プリミティブ
+python generate_sdf_dataset.py \
+    --out_dir ./level3_complex \
+    --primitives sphere box cylinder torus \
+    --max_objects 8 \
+    --num_samples 500
 ```
 
 ## 出力構造
@@ -113,7 +161,15 @@ output_directory/
 
 ### 画像データ
 - **画像ファイル（*_x.nii.gz）**: SDF値から計算された強度値（0-128の範囲）
-- **ラベルファイル（*_y.nii.gz）**: オブジェクトID（0=背景、1-4=各プリミティブ）
+- **ラベルファイル（*_y.nii.gz）**: オブジェクトID（0=背景、1-N=各プリミティブ、Nは選択したプリミティブ数）
+
+### プリミティブIDマッピング
+選択したプリミティブに応じて、以下のIDが割り当てられます：
+- **全プリミティブ使用時**: 1=Sphere, 2=Box, 3=Cylinder, 4=Torus
+- **部分選択時**: 選択順序に応じて1から順番に割り当て
+
+例：`--primitives box torus` の場合
+- 1=Box, 2=Torus
 
 ## 技術的詳細
 

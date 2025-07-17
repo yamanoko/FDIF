@@ -45,6 +45,20 @@ python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --D 128 --H 128 --W 128 \
     --num_samples 200 \
     --min_objects 2 --max_objects 4
+
+# 特定のプリミティブのみを使用した生成
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./sphere_box_dataset \
+    --num_samples 300 \
+    --primitives sphere box \
+    --max_objects 6
+
+# 単一プリミティブでの生成
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./cylinder_only_dataset \
+    --num_samples 200 \
+    --primitives cylinder \
+    --max_objects 8
 ```
 
 ### 3. モデル訓練
@@ -89,12 +103,45 @@ FDSLxSDF4Seg/
 
 ## 📊 サポートするプリミティブ
 
-| プリミティブ | 説明 | パラメータ |
-|-------------|------|------------|
-| 🔵 **Sphere** | 球体 | 半径 |
-| 📦 **Box** | 直方体 | 幅・高さ・奥行き |
-| 🗼 **Cylinder** | 円柱 | 半径・高さ |
-| 🍩 **Torus** | トーラス | 大半径・小半径 |
+| プリミティブ | 説明 | パラメータ | 使用例 |
+|-------------|------|------------|--------|
+| 🔵 **Sphere** | 球体 | 半径 | `--primitives sphere` |
+| 📦 **Box** | 直方体 | 幅・高さ・奥行き | `--primitives box` |
+| 🗼 **Cylinder** | 円柱 | 半径・高さ | `--primitives cylinder` |
+| 🍩 **Torus** | トーラス | 大半径・小半径 | `--primitives torus` |
+
+### プリミティブ選択オプション
+
+- **全プリミティブ使用**（デフォルト）:
+  ```bash
+  python generate_sdf_dataset.py --primitives sphere box cylinder torus
+  ```
+
+- **複数プリミティブ選択**:
+  ```bash
+  python generate_sdf_dataset.py --primitives sphere box
+  ```
+
+- **単一プリミティブ**:
+  ```bash
+  python generate_sdf_dataset.py --primitives cylinder
+  ```
+
+**注意**: 選択したプリミティブの種類により、セグメンテーションのクラス数が変わります。`--max_objects`パラメータで、同じプリミティブの複数インスタンスを生成できます。
+
+### データ生成のコマンドラインオプション
+
+| オプション | 説明 | デフォルト | 例 |
+|-----------|------|-----------|-----|
+| `--out_dir` | 出力ディレクトリ | 自動生成 | `./my_dataset` |
+| `--D`, `--H`, `--W` | グリッドサイズ | 64 | `--D 128 --H 128 --W 128` |
+| `--num_samples` | 訓練サンプル数 | 200 | `--num_samples 1000` |
+| `--num_val_samples` | 検証サンプル数 | 0 | `--num_val_samples 100` |
+| `--min_objects` | 最小オブジェクト数 | 2 | `--min_objects 1` |
+| `--max_objects` | 最大オブジェクト数 | 5 | `--max_objects 10` |
+| `--primitives` | 使用プリミティブ | 全て | `--primitives sphere box` |
+| `--seed` | 乱数シード | None | `--seed 42` |
+| `--num_visualize` | 可視化サンプル数 | 0 | `--num_visualize 10` |
 
 ## 🤖 サポートモデル
 
@@ -158,15 +205,32 @@ tqdm>=4.60.0
 - ハイパーパラメータ最適化
 - ベースライン性能の確立
 
+### 段階的学習戦略
+1. **単一プリミティブ**: 最も単純なケースから開始
+   ```bash
+   python generate_sdf_dataset.py --primitives sphere --max_objects 3
+   ```
+
+2. **複数プリミティブ**: 複雑度を徐々に増加
+   ```bash
+   python generate_sdf_dataset.py --primitives sphere box --max_objects 5
+   ```
+
+3. **全プリミティブ**: 最終的な複雑なシーンで評価
+   ```bash
+   python generate_sdf_dataset.py --primitives sphere box cylinder torus --max_objects 8
+   ```
+
 ## 📝 ワークフロー例
 
 ### 1. 合成データでの事前訓練
 ```bash
-# Step 1: 合成データ生成
+# Step 1: 合成データ生成（全プリミティブ使用）
 python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./pretraining_data \
     --num_samples 1000 \
-    --grid_size 96 96 96
+    --D 96 --H 96 --W 96 \
+    --primitives sphere box cylinder torus
 
 # Step 2: 事前訓練
 python src/fdslxsdf4seg/training.py \
