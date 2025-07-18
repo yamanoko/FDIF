@@ -34,6 +34,12 @@ from monai.transforms import (
 )
 from tqdm import tqdm
 
+# Import visualization functions from visualize_training_metrics.py
+from .visualize_training_metrics import (
+    plot_metrics,
+    print_summary,
+)
+
 
 def make_data_loder(
     data_json_path: str,
@@ -652,6 +658,14 @@ if __name__ == "__main__":
     with open(os.path.join(out_dir, "training_metrics.json"), "w") as f:
         json.dump(metrics_data, f, indent=2)
 
+    # Create training curves visualization using visualize_training_metrics.py functions
+    print("Creating training curves visualization...")
+    print_summary(epoch_loss_values, metric_values, metrics_data["steps"])
+
+    # Use the plot_metrics function from visualize_training_metrics.py
+    # This will create and save the visualization plots without showing them
+    plot_metrics(epoch_loss_values, metric_values, metrics_data["steps"], out_dir)
+
     with open(training_log_path, "a") as f:
         f.write(
             f"Training completed in {time_end - time_start:.2f} seconds. Best Dice: {dice_val_best:.4f} at step {global_step_best}.\n"
@@ -661,6 +675,10 @@ if __name__ == "__main__":
         f.write("  - validation_dice.npy\n")
         f.write("  - steps.npy\n")
         f.write("  - training_metrics.json\n")
+        f.write("Training curves visualizations saved to:\n")
+        f.write("  - training_metrics_plot.png\n")
+        f.write("  - training_loss_individual.png\n")
+        f.write("  - validation_dice_individual.png\n")
 
     # Perform inference and visualize results
     print("Performing inference with best model...")
@@ -680,3 +698,6 @@ if __name__ == "__main__":
         f.write("Inference visualizations saved to:\n")
         f.write("  - inference_visualization.png\n")
         f.write("  - inference_multiplane_visualization.png\n")
+        f.write(
+            "All visualizations (training curves and inference) are now complete.\n"
+        )

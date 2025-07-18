@@ -80,10 +80,8 @@ def plot_metrics(training_loss, validation_dice, steps, output_dir):
     # Save the combined plot
     plot_path = os.path.join(output_dir, "training_metrics_plot.png")
     plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+    plt.close()
     print(f"Training metrics plot saved to: {plot_path}")
-
-    # Show the plot
-    plt.show()
 
     # Create and save individual plots
     save_individual_plots(training_loss, validation_dice, steps, output_dir)
