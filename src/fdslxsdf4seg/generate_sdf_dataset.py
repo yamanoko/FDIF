@@ -36,9 +36,9 @@ class SDFObject:
             # 中心座標を指定する場合は平行移動行列を設定
             t_x, t_y, t_z = center
         else:
-            t_x = random.uniform(-0.5, 0.5) * grid_size[0]
-            t_y = random.uniform(-0.5, 0.5) * grid_size[1]
-            t_z = random.uniform(-0.5, 0.5) * grid_size[2]
+            t_x = random.uniform(-0.35, 0.35) * grid_size[0]
+            t_y = random.uniform(-0.35, 0.35) * grid_size[1]
+            t_z = random.uniform(-0.35, 0.35) * grid_size[2]
         T = self.tranlate_matrix(t_x, t_y, t_z)
         if transform:
             # 回転角度を生成
