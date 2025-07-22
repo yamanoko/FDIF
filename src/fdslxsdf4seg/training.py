@@ -36,7 +36,7 @@ from monai.transforms import (
 )
 from tqdm import tqdm
 
-from src.fdslxsdf4seg.visualize_training_metrics import (
+from fdslxsdf4seg.visualize_training_metrics import (
     plot_metrics,
     print_summary,
 )
