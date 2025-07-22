@@ -262,7 +262,7 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
                     f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
 
-    return mean_dice_val, dice_scores
+    return mean_dice_val, raw_dice_score
 
 
 def train(
