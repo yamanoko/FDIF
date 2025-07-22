@@ -290,6 +290,108 @@ class Torus(SDFObject):
         return self.R + self.r
 
 
+class Cone(SDFObject):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height=None,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H) * 0.2, min(D, H) * 0.5)
+        if height is None:
+            height = random.uniform(W * 0.2, W * 0.6)
+        self.radius = radius
+        self.height = height
+
+    def _sdf(self, x, y, z):
+        p = torch.stack(
+            [
+                torch.stack([x, z], dim=0).norm(dim=0) - self.radius,
+                y + (self.height / 2),
+            ],
+            dim=0,
+        )
+        e = torch.stack(
+            [
+                torch.ones_like(p[0]) * -self.radius,
+                torch.ones_like(p[0]) * self.height,
+            ],
+            dim=0,
+        )
+        q = p - e * torch.clamp(
+            torch.sum(p * e, dim=0) / torch.sum(e * e, dim=0), min=0.0, max=1.0
+        )
+        d = torch.norm(q, dim=0)
+        max_q = torch.max(q, dim=0).values
+        mask = max_q > 0.0
+        min_val = torch.min(torch.stack([d, p[1]], dim=0), dim=0).values
+        return torch.where(mask, d, -min_val)
+
+    def max_distance(self):
+        return float(max(self.radius, self.height))
+
+
+class HexagonalPrism(SDFObject):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height=None,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H) * 0.2, min(D, H) * 0.5)
+        if height is None:
+            height = random.uniform(W * 0.2, W * 0.6)
+        self.radius = radius
+        self.height = height
+
+    def _sdf(self, x, y, z):
+        k = torch.tensor(
+            [[-0.8660254], [0.5], [0.57735]], device=self.device
+        )  # cos(30°), sin(30°), 1/sqrt(3)
+        k = k.view(3, 1, 1, 1).expand(3, *self.grid_size)
+        p = torch.stack([x, y], dim=0)
+        p = torch.abs(p)
+        p -= (
+            2.0
+            * torch.min(
+                torch.stack(
+                    [torch.sum(k[:2] * p, dim=0), torch.zeros_like(k[0])], dim=0
+                ),
+                dim=0,
+            ).values
+            * k[:2]
+        )
+        p -= torch.stack(
+            [
+                torch.clamp(p[0], min=-k[2] * self.radius, max=k[2] * self.radius),
+                torch.ones_like(p[1]) * self.radius,
+            ],
+            dim=0,
+        )
+        perp = torch.norm(p, dim=0) * torch.sign(p[1])
+        along = torch.abs(z) - self.height / 2.0
+        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
+        inside = torch.clamp(
+            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
+        )
+        return torch.norm(outside, dim=0) + inside
+
+    def max_distance(self):
+        return float(max(self.radius, self.height))
+
+
 class SDFSegmentationDataset(Dataset):
     def __init__(
         self,
@@ -317,6 +419,8 @@ class SDFSegmentationDataset(Dataset):
             "box": Box,
             "cylinder": Cylinder,
             "torus": Torus,
+            "cone": Cone,
+            "hex_prism": HexagonalPrism,
         }
 
         # 使用するプリミティブを選択（デフォルトは全て）
@@ -368,7 +472,7 @@ class SDFSegmentationDataset(Dataset):
         stacked_sdfs = torch.stack(sdfs, dim=0)
         stacked_sdfs = stacked_sdfs.view(n_objs, -1)  # (n_objs, D*H*W)
         # 各オブジェクトの体積を計算
-        volumes = (stacked_sdfs < 0).sum(dim=1)  # (n_objs,)
+        volumes = (stacked_sdfs <= 0).sum(dim=1)  # (n_objs,)
         # 体積が大きい順にソート
         sorted_indices = torch.argsort(volumes, descending=True)
         sdfs = [sdfs[i] for i in sorted_indices.tolist()]  # (n_objs, D, H, W)
@@ -378,7 +482,7 @@ class SDFSegmentationDataset(Dataset):
         # 体積の小さいオブジェクトのIDが優先される
         y_vol = torch.zeros_like(x_vol, dtype=torch.uint8)
         for i, obj_id in enumerate(primitive_ids):
-            mask = (sdfs[i] < 0).to(torch.uint8)
+            mask = (sdfs[i] <= 0).to(torch.uint8)
             # オブジェクトIDをマスクに適用
             y_vol[mask == 1] = obj_id
 

@@ -10,7 +10,9 @@ import torch
 
 from src.fdslxsdf4seg.generate_sdf_dataset import (
     Box,
+    Cone,
     Cylinder,
+    HexagonalPrism,
     Sphere,
     Torus,
     visualize_sample,
@@ -24,7 +26,7 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
     os.makedirs(output_dir, exist_ok=True)
 
     # グリッドサイズとデバイス設定
-    grid_size = [32, 32, 32]  # より大きなサイズで詳細な可視化
+    grid_size = [64, 64, 64]  # より細かなグリッドで詳細な可視化
     device = torch.device("cpu")
 
     # 座標メッシュを作成
@@ -35,17 +37,31 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
 
     # テスト対象のプリミティブ
     primitives = [
-        ("Sphere", Sphere, {"center": (16.0, 16.0, 16.0), "radius": 8.0}),
-        ("Box", Box, {"center": (16.0, 16.0, 16.0), "half_extents": (6.0, 6.0, 6.0)}),
+        ("Sphere", Sphere, {"center": (32.0, 32.0, 32.0), "radius": 16.0}),
+        (
+            "Box",
+            Box,
+            {"center": (32.0, 32.0, 32.0), "half_extents": (12.0, 12.0, 12.0)},
+        ),
         (
             "Cylinder",
             Cylinder,
-            {"center": (16.0, 16.0, 16.0), "radius": 6.0, "height": 16.0},
+            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
         (
             "Torus",
             Torus,
-            {"center": (16.0, 16.0, 16.0), "major_r": 8.0, "minor_r": 3.0},
+            {"center": (32.0, 32.0, 32.0), "major_r": 16.0, "minor_r": 6.0},
+        ),
+        (
+            "Cone",
+            Cone,
+            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
+        ),
+        (
+            "HexagonalPrism",
+            HexagonalPrism,
+            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
     ]
 
@@ -72,7 +88,7 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
         sdf_vis = torch.clamp(sdf_vis, 0.0, 128.0).to(torch.uint8)
 
         # セグメンテーションマスクを作成（オブジェクトIDは1）
-        mask = (sdf < 0).to(torch.uint8)
+        mask = (sdf <= 0).to(torch.uint8)
 
         # NumPy配列に変換
         sdf_np = sdf_vis.cpu().numpy()
@@ -105,7 +121,7 @@ def generate_dataset_samples(output_dir="visualize_output", num_samples=5):
     os.makedirs(samples_dir, exist_ok=True)
 
     # グリッドサイズとデバイス設定
-    grid_size = [32, 32, 32]
+    grid_size = [64, 64, 64]
     device = torch.device("cpu")
 
     # データセットを作成
