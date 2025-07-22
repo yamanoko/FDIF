@@ -35,10 +35,17 @@ from monai.transforms import (
 from tqdm import tqdm
 
 # Import visualization functions from visualize_training_metrics.py
-from .visualize_training_metrics import (
-    plot_metrics,
-    print_summary,
-)
+try:
+    from .visualize_training_metrics import (
+        plot_metrics,
+        print_summary,
+    )
+except ImportError:
+    # Fallback to absolute import if relative import fails
+    from fdslxsdf4seg.visualize_training_metrics import (
+        plot_metrics,
+        print_summary,
+    )
 
 
 def make_data_loder(
