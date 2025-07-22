@@ -671,8 +671,8 @@ if __name__ == "__main__":
     p.add_argument(
         "--primitives",
         nargs="*",
-        default=["sphere", "box", "cylinder", "torus"],
-        choices=["sphere", "box", "cylinder", "torus"],
+        default=["sphere", "box", "cylinder", "torus", "cone", "hex_prism"],
+        choices=["sphere", "box", "cylinder", "torus", "cone", "hex_prism"],
         help="Primitive types to use for generation (default: all primitives)",
     )
     p.add_argument(
