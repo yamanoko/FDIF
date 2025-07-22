@@ -36,9 +36,9 @@ class SDFObject:
             # 中心座標を指定する場合は平行移動行列を設定
             t_x, t_y, t_z = center
         else:
-            t_x = random.uniform(-0.3, 0.3) * grid_size[0]
-            t_y = random.uniform(-0.3, 0.3) * grid_size[1]
-            t_z = random.uniform(-0.3, 0.3) * grid_size[2]
+            t_x = random.uniform(-0.5, 0.5) * grid_size[0]
+            t_y = random.uniform(-0.5, 0.5) * grid_size[1]
+            t_z = random.uniform(-0.5, 0.5) * grid_size[2]
         T = self.tranlate_matrix(t_x, t_y, t_z)
         if transform:
             # 回転角度を生成
@@ -183,7 +183,7 @@ class Sphere(SDFObject):
         D, H, W = grid_size
         # ランダム化
         if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.3, min(D, H, W) * 0.5)
+            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.2)
         # パラメータ設定
         self.radius = radius
 
@@ -207,9 +207,9 @@ class Box(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if half_extents is None:
-            hx = random.uniform(D * 0.1, D * 0.3)
-            hy = random.uniform(H * 0.1, H * 0.3)
-            hz = random.uniform(W * 0.1, W * 0.3)
+            hx = random.uniform(D * 0.05, D * 0.2)
+            hy = random.uniform(H * 0.05, H * 0.2)
+            hz = random.uniform(W * 0.05, W * 0.2)
             half_extents = (hz, hy, hx)
         self.half = torch.tensor(half_extents, device=device).view(3, 1, 1, 1)
 
@@ -238,9 +238,9 @@ class Cylinder(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.3, min(D, H) * 0.5)
+            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
         if height is None:
-            height = random.uniform(W * 0.2, W * 0.6)
+            height = random.uniform(W * 0.2, W * 0.3)
         self.radius = radius
         self.h = height / 2.0
         self.axis = axis
@@ -275,9 +275,9 @@ class Torus(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if major_r is None:
-            major_r = random.uniform(min(D, H) * 0.3, min(D, H) * 0.5)
+            major_r = random.uniform(min(D, H) * 0.1, min(D, H) * 0.3)
         if minor_r is None:
-            minor_r = major_r * random.uniform(0.3, 0.6)
+            minor_r = major_r * random.uniform(0.1, 0.3)
         self.R = major_r
         self.r = minor_r
 
@@ -303,9 +303,9 @@ class Cone(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.2, min(D, H) * 0.5)
+            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
         if height is None:
-            height = random.uniform(W * 0.2, W * 0.6)
+            height = random.uniform(W * 0.2, W * 0.3)
         self.radius = radius
         self.height = height
 
@@ -350,9 +350,9 @@ class HexagonalPrism(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.2, min(D, H) * 0.5)
+            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
         if height is None:
-            height = random.uniform(W * 0.2, W * 0.6)
+            height = random.uniform(W * 0.1, W * 0.3)
         self.radius = radius
         self.height = height
 
@@ -450,7 +450,9 @@ class SDFSegmentationDataset(Dataset):
         primitive_ids = random.choices(list(self.primitive_classes.keys()), k=n_objs)
         for id in primitive_ids:
             PrimClass = self.primitive_classes[id]
-            obj = PrimClass(grid_size=[self.D, self.H, self.W], device=self.device)
+            obj = PrimClass(
+                grid_size=[self.D, self.H, self.W], device=self.device, transform=True
+            )
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
             max_ds.append(obj.max_distance())
@@ -646,7 +648,7 @@ def visualize_sample(sample, output_file_name):
     )
 
     slice_filename = output_file_name.replace(".png", "_slice.png")
-    fig.write_image(slice_filename)
+    slice_fig.write_image(slice_filename)
 
 
 if __name__ == "__main__":
