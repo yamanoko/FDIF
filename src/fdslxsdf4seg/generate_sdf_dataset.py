@@ -628,11 +628,8 @@ def visualize_sample(sample, output_file_name):
         height=500,
     )
 
-    # Save as HTML (interactive) or PNG (static)
-    if output_file_name.endswith(".html"):
-        fig.write_html(output_file_name)
-    else:
-        fig.write_image(output_file_name)
+    # Save as PNG (static)
+    fig.write_image(output_file_name)
 
     # Create slice visualization
     slice_index = x.shape[0] // 2
@@ -648,13 +645,8 @@ def visualize_sample(sample, output_file_name):
         title=f"Slice at index {slice_index}", xaxis_title="X", yaxis_title="Y"
     )
 
-    slice_filename = output_file_name.replace(".png", "_slice.png").replace(
-        ".html", "_slice.html"
-    )
-    if slice_filename.endswith(".html"):
-        slice_fig.write_html(slice_filename)
-    else:
-        slice_fig.write_image(slice_filename)
+    slice_filename = output_file_name.replace(".png", "_slice.png")
+    fig.write_image(slice_filename)
 
 
 if __name__ == "__main__":
