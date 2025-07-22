@@ -243,6 +243,7 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             raw_dice_score = dice_metric(
                 y_pred=val_output_convert, y=val_labels_convert
             )
+            raw_dice_score = raw_dice_score[0]
             epoch_iterator_val.set_description(
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
@@ -257,7 +258,6 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
             # Log per-class dice scores
             for class_idx in range(out_channel):
-                print("raw_dice_score", raw_dice_score)
                 f.write(
                     f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
