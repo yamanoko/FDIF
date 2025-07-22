@@ -1,7 +1,11 @@
 import argparse
 import json
 import os
+
+# Import visualization functions from visualize_training_metrics.py
+import sys
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -34,18 +38,38 @@ from monai.transforms import (
 )
 from tqdm import tqdm
 
-# Import visualization functions from visualize_training_metrics.py
+# Add the current directory to Python path for imports
+current_dir = Path(__file__).parent
+sys.path.insert(0, str(current_dir))
+
 try:
-    from .visualize_training_metrics import (
+    from visualize_training_metrics import (
         plot_metrics,
         print_summary,
     )
 except ImportError:
-    # Fallback to absolute import if relative import fails
-    from fdslxsdf4seg.visualize_training_metrics import (
-        plot_metrics,
-        print_summary,
-    )
+    try:
+        from .visualize_training_metrics import (
+            plot_metrics,
+            print_summary,
+        )
+    except ImportError:
+        try:
+            from fdslxsdf4seg.visualize_training_metrics import (
+                plot_metrics,
+                print_summary,
+            )
+        except ImportError:
+            print(
+                "Warning: Could not import visualization functions. Training will continue without visualization plots."
+            )
+            # Define dummy functions to prevent errors
+
+            def plot_metrics(*args, **kwargs):
+                print("Visualization function not available.")
+
+            def print_summary(*args, **kwargs):
+                print("Summary function not available.")
 
 
 def make_data_loder(
