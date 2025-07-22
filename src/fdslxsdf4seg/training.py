@@ -240,7 +240,9 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             val_output_convert = [
                 post_pred(val_pred_tensor) for val_pred_tensor in val_outputs_list
             ]
-            dice_metric(y_pred=val_output_convert, y=val_labels_convert)
+            raw_dice_score = dice_metric(
+                y_pred=val_output_convert, y=val_labels_convert
+            )
             epoch_iterator_val.set_description(
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
@@ -256,7 +258,7 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             # Log per-class dice scores
             for class_idx in range(out_channel):
                 f.write(
-                    f"Step {global_step}: Class {class_idx} Dice Score: {dice_scores[class_idx].item():.6f}\n"
+                    f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
 
     return mean_dice_val, dice_scores
