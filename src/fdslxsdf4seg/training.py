@@ -272,6 +272,7 @@ def train(
     global_step_best,
     training_log_path,
     out_channel=14,
+    is_real_data=True,
 ):
     model.train()
     epoch_loss = 0
@@ -310,6 +311,26 @@ def train(
             # Log training results
             with open(training_log_path, "a") as f:
                 f.write(f"Step {global_step}: Training Loss: {epoch_loss:.6f}\n")
+
+            # Save model based on data type and validation performance
+            if not is_real_data:
+                # For synthetic data, save model every validation
+                model_path = os.path.join(out_dir, f"model_step_{global_step}.pth")
+                torch.save(model.state_dict(), model_path)
+                print(f"Model saved at step {global_step}: {model_path}")
+
+                # Log model save event
+                with open(training_log_path, "a") as f:
+                    f.write(
+                        f"*** MODEL SAVED at Step {global_step} (Synthetic Data) ***\n"
+                    )
+                    f.write(f"Current Dice Score: {dice_val:.6f}\n")
+                    f.write("Per-class Dice Scores:\n")
+                    for class_idx in range(out_channel):
+                        f.write(
+                            f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
+                        )
+                    f.write("=" * 50 + "\n")
 
             if dice_val > dice_val_best:
                 dice_val_best = dice_val
@@ -640,6 +661,7 @@ if __name__ == "__main__":
             global_step_best,
             training_log_path,
             args.out_channel,
+            args.is_real_data,
         )
     time_end = time.time()
     print(
