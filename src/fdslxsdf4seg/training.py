@@ -149,9 +149,7 @@ def make_data_loder(
         cache_rate=1.0,
         num_workers=4,
     )
-    val_loader = ThreadDataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
 
 
