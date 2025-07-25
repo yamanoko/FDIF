@@ -187,7 +187,6 @@ def create_model(
             model = UNETR(
                 in_channels=1,
                 out_channels=pretraining_out_channel,
-                img_size=grid_size,
                 spatial_dims=3,
                 feature_size=feature_size or 16,
             )
@@ -202,7 +201,6 @@ def create_model(
             model = UNETR(
                 in_channels=1,
                 out_channels=out_channel,
-                img_size=grid_size,
                 spatial_dims=3,
                 feature_size=feature_size or 16,
             )
@@ -210,7 +208,6 @@ def create_model(
         model = SwinUNETR(
             in_channels=1,
             out_channels=out_channel,
-            img_size=grid_size,
             spatial_dims=3,
             feature_size=feature_size or 48,
         )
