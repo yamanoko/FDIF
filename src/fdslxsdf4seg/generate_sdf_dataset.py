@@ -238,7 +238,7 @@ class Cylinder(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
+            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
         if height is None:
             height = random.uniform(W * 0.2, W * 0.3)
         self.radius = radius
@@ -260,6 +260,26 @@ class Cylinder(SDFObject):
 
     def max_distance(self):
         return float(max(self.h, self.radius))
+
+
+class ThinCylinder(Cylinder):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height=None,
+    ):
+        if radius is None:
+            radius = random.uniform(
+                min(grid_size[0], grid_size[1]) * 0.025,
+                min(grid_size[0], grid_size[1]) * 0.05,
+            )
+        if height is None:
+            height = random.uniform(grid_size[2] * 0.3, grid_size[2] * 0.5)
+        super().__init__(grid_size, device, center, transform, radius, height)
 
 
 class Torus(SDFObject):
@@ -335,6 +355,26 @@ class Cone(SDFObject):
 
     def max_distance(self):
         return float(max(self.radius, self.height))
+
+
+class ThinCone(Cone):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height=None,
+    ):
+        if radius is None:
+            radius = random.uniform(
+                min(grid_size[0], grid_size[1]) * 0.025,
+                min(grid_size[0], grid_size[1]) * 0.05,
+            )
+        if height is None:
+            height = random.uniform(grid_size[2] * 0.3, grid_size[2] * 0.5)
+        super().__init__(grid_size, device, center, transform, radius, height)
 
 
 class HexagonalPrism(SDFObject):
@@ -418,8 +458,10 @@ class SDFSegmentationDataset(Dataset):
             "sphere": Sphere,
             "box": Box,
             "cylinder": Cylinder,
+            "thin_cylinder": ThinCylinder,
             "torus": Torus,
             "cone": Cone,
+            "thin_cone": ThinCone,
             "hex_prism": HexagonalPrism,
         }
 
@@ -665,8 +707,26 @@ if __name__ == "__main__":
     p.add_argument(
         "--primitives",
         nargs="*",
-        default=["sphere", "box", "cylinder", "torus", "cone", "hex_prism"],
-        choices=["sphere", "box", "cylinder", "torus", "cone", "hex_prism"],
+        default=[
+            "sphere",
+            "box",
+            "cylinder",
+            "thin_cylinder",
+            "torus",
+            "cone",
+            "thin_cone",
+            "hex_prism",
+        ],
+        choices=[
+            "sphere",
+            "box",
+            "cylinder",
+            "thin_cylinder",
+            "torus",
+            "cone",
+            "thin_cone",
+            "hex_prism",
+        ],
         help="Primitive types to use for generation (default: all primitives)",
     )
     p.add_argument(
