@@ -307,6 +307,13 @@ def train(
             with open(training_log_path, "a") as f:
                 f.write(f"Step {global_step}: Training Loss: {epoch_loss:.6f}\n")
 
+            plot_metrics(
+                epoch_loss_values,
+                metric_values,
+                list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
+                out_dir,
+            )
+
             # Save model based on data type and validation performance
             if not is_real_data:
                 # For synthetic data, save model every validation
@@ -384,7 +391,7 @@ def perform_inference_and_visualize(
         from monai.metrics import compute_dice
 
         dice_scores = compute_dice(
-            val_outputs_softmax, val_labels, include_background=True
+            val_outputs_softmax, val_labels, include_background=False
         )
         mean_dice = torch.mean(dice_scores).item()
 
@@ -638,7 +645,7 @@ if __name__ == "__main__":
     post_label = AsDiscrete(to_onehot=args.out_channel)
     post_pred = AsDiscrete(argmax=True, to_onehot=args.out_channel)
     dice_metric = DiceMetric(
-        include_background=True, reduction="mean", get_not_nans=False
+        include_background=False, reduction="mean", get_not_nans=False
     )
     global_step = 0
     dice_val_best = 0.0
