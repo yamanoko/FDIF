@@ -252,7 +252,10 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
         with open(training_log_path, "a") as f:
             f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
             # Log per-class dice scores
-            for class_idx in range(out_channel):
+            # This assumes out_channel is the number of classes
+            # and the score for background is not included
+            # This is why we loop from 0 to out_channel - 1
+            for class_idx in range(out_channel - 1):
                 f.write(
                     f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
