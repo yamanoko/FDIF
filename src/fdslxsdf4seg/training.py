@@ -310,12 +310,12 @@ def train(
             with open(training_log_path, "a") as f:
                 f.write(f"Step {global_step}: Training Loss: {epoch_loss:.6f}\n")
 
-            # plot_metrics(
-            #     epoch_loss_values,
-            #     metric_values,
-            #     list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
-            #     out_dir,
-            # )
+            plot_metrics(
+                epoch_loss_values,
+                metric_values,
+                list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
+                out_dir,
+            )
 
             # Save model based on data type and validation performance
             if not is_real_data:
