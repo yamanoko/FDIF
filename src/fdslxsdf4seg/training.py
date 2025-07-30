@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from monai.data import (
-    CacheDataset,
+    # CacheDataset,
     Dataset,
     ThreadDataLoader,
     decollate_batch,
@@ -154,7 +154,7 @@ def make_data_loder(
     #     cache_rate=1.0,
     #     num_workers=4,
     # )
-    val_ds = CacheDataset(
+    val_ds = Dataset(
         data=val_files,
         transform=val_transforms,
     )
