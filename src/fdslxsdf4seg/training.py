@@ -348,7 +348,7 @@ def train(
                         dice_val_best, dice_val
                     )
                 )
-
+                print("dice_score:", dice_scores)
                 # Log detailed per-class dice scores for the best model
                 with open(training_log_path, "a") as f:
                     f.write(f"*** BEST MODEL SAVED at Step {global_step} ***\n")
