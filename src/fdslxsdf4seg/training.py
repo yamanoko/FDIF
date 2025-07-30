@@ -393,7 +393,7 @@ def perform_inference_and_visualize(
         from monai.metrics import compute_dice
 
         dice_scores = compute_dice(
-            val_outputs_softmax, val_labels, include_background=True
+            val_outputs_softmax, val_labels, include_background=False
         )
         mean_dice = torch.mean(dice_scores).item()
 
@@ -647,7 +647,7 @@ if __name__ == "__main__":
     post_label = AsDiscrete(to_onehot=args.out_channel)
     post_pred = AsDiscrete(argmax=True, to_onehot=args.out_channel)
     dice_metric = DiceMetric(
-        include_background=True, reduction="mean", get_not_nans=False
+        include_background=False, reduction="mean", get_not_nans=False
     )
     global_step = 0
     dice_val_best = 0.0
