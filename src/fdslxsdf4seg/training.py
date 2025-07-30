@@ -331,7 +331,7 @@ def train(
                     )
                     f.write(f"Current Dice Score: {dice_val:.6f}\n")
                     f.write("Per-class Dice Scores:\n")
-                    for class_idx in range(out_channel):
+                    for class_idx in range(out_channel - 1):
                         f.write(
                             f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
                         )
@@ -354,7 +354,7 @@ def train(
                     f.write(f"*** BEST MODEL SAVED at Step {global_step} ***\n")
                     f.write(f"Best Average Dice Score: {dice_val_best:.6f}\n")
                     f.write("Per-class Dice Scores for Best Model:\n")
-                    for class_idx in range(out_channel):
+                    for class_idx in range(out_channel - 1):
                         f.write(
                             f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
                         )
