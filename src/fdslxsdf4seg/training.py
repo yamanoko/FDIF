@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from monai.data import (
     CacheDataset,
+    Dataset,
     ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
@@ -129,12 +130,16 @@ def make_data_loder(
 
     datalist = load_decathlon_datalist(data_json_path, True, "training")
     val_files = load_decathlon_datalist(data_json_path, True, "validation")
-    train_ds = CacheDataset(
+    # train_ds = CacheDataset(
+    #     data=datalist,
+    #     transform=train_transforms,
+    #     cache_num=24,
+    #     cache_rate=1.0,
+    #     num_workers=8,
+    # )
+    train_ds = Dataset(
         data=datalist,
         transform=train_transforms,
-        # cache_num=24,
-        cache_rate=1.0,
-        num_workers=8,
     )
     train_loader = ThreadDataLoader(
         train_ds,
@@ -145,7 +150,7 @@ def make_data_loder(
     val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
-        # cache_num=6,
+        cache_num=6,
         cache_rate=1.0,
         num_workers=4,
     )
