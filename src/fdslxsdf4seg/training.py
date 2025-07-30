@@ -147,12 +147,16 @@ def make_data_loder(
         shuffle=True,
         num_workers=0,
     )
+    # val_ds = CacheDataset(
+    #     data=val_files,
+    #     transform=val_transforms,
+    #     cache_num=6,
+    #     cache_rate=1.0,
+    #     num_workers=4,
+    # )
     val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
-        cache_num=6,
-        cache_rate=1.0,
-        num_workers=4,
     )
     val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
