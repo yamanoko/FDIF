@@ -132,7 +132,7 @@ def make_data_loder(
     train_ds = CacheDataset(
         data=datalist,
         transform=train_transforms,
-        cache_num=24,
+        # cache_num=24,
         cache_rate=1.0,
         num_workers=8,
     )
@@ -145,7 +145,7 @@ def make_data_loder(
     val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
-        cache_num=6,
+        # cache_num=6,
         cache_rate=1.0,
         num_workers=4,
     )
