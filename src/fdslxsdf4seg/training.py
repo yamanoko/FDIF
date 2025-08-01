@@ -152,7 +152,7 @@ def make_data_loder(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=0,
     )
     # val_ds = CacheDataset(
     #     data=val_files,
@@ -166,7 +166,7 @@ def make_data_loder(
         transform=val_transforms,
     )
     # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=4)
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
 
 
