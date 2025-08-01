@@ -198,8 +198,6 @@ def make_data_loder(
         shuffle=True,
         num_workers=0,  # Start with 0 workers
         pin_memory=False,  # Disable pin_memory to reduce overhead
-        prefetch_factor=1,  # Minimal prefetching to reduce memory pressure
-        persistent_workers=False,  # Don't keep workers alive between epochs
     )
 
     # Alternative: Uncomment to test ThreadDataLoader
