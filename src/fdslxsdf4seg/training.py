@@ -258,6 +258,69 @@ def make_data_loder(
     print(f"[DEBUG] Batch size: {batch_size}")
     print(f"[DEBUG] Expected batches: {len(train_ds) // batch_size}")
 
+    # Add detailed debugging for dataset access patterns
+    print(f"[DEBUG] Dataset type: {type(train_ds).__name__}")
+    print(
+        f"[DEBUG] Transform pipeline length: {len(train_transforms.transforms) if hasattr(train_transforms, 'transforms') else 'Unknown'}"
+    )
+
+    # Print detailed transform pipeline
+    print("[DEBUG] Transform pipeline details:")
+    if hasattr(train_transforms, "transforms"):
+        for idx, transform in enumerate(train_transforms.transforms):
+            print(f"[DEBUG]   {idx + 1}. {type(transform).__name__}")
+
+    # Test individual sample access time and file system analysis
+    print("[DEBUG] Testing individual sample access times...")
+    import os as os_module  # Use different name to avoid conflict
+    import random
+
+    sample_indices = random.sample(range(len(train_ds)), min(5, len(train_ds)))
+
+    # Also test file path analysis
+    print("[DEBUG] Analyzing file access patterns...")
+    data_files = datalist
+    if len(data_files) > 0:
+        first_file_path = data_files[0].get("image", "No image key")
+        print(f"[DEBUG] Sample file path: {first_file_path}")
+        if isinstance(first_file_path, str):
+            if os_module.path.exists(first_file_path):
+                file_size = os_module.path.getsize(first_file_path) / 1024 / 1024  # MB
+                print(f"[DEBUG] Sample file size: {file_size:.1f} MB")
+
+    # Test transform timing on individual sample
+    if len(sample_indices) > 0:
+        print("[DEBUG] Testing transform timing breakdown...")
+        test_idx = sample_indices[0]
+        raw_data = datalist[test_idx]
+        print(f"[DEBUG] Raw data keys: {list(raw_data.keys())}")
+
+        # Time each transform step
+        data = raw_data.copy()
+        total_transform_time = 0
+        if hasattr(train_transforms, "transforms"):
+            for idx, transform in enumerate(train_transforms.transforms):
+                transform_start = time.time()
+                data = transform(data)
+                transform_time = time.time() - transform_start
+                total_transform_time += transform_time
+                print(
+                    f"[DEBUG]   Transform {idx + 1} ({type(transform).__name__}): {transform_time:.3f}s"
+                )
+        print(f"[DEBUG] Total transform time: {total_transform_time:.3f}s")
+
+    for i, idx in enumerate(sample_indices):
+        sample_start = time.time()
+        sample = train_ds[idx]
+        sample_time = time.time() - sample_start
+        print(f"[DEBUG] Sample {i + 1} (index {idx}): {sample_time:.3f}s")
+        if i == 0:  # Print details for first sample
+            print(f"[DEBUG] Sample keys: {list(sample.keys())}")
+            if "image" in sample:
+                print(f"[DEBUG] Image shape: {sample['image'].shape}")
+            if "label" in sample:
+                print(f"[DEBUG] Label shape: {sample['label'].shape}")
+
     test_start = time.time()
     test_loader_iter = iter(train_loader)
 
@@ -288,6 +351,31 @@ def make_data_loder(
             print(
                 f"[DEBUG] Memory before: {memory_before:.1f} MB, after: {memory_after:.1f} MB (increase: {memory_increase:.1f} MB)"
             )
+
+            # Additional debugging for DataLoader internals
+            print(f"[DEBUG] DataLoader num_workers: {train_loader.num_workers}")
+            print(f"[DEBUG] DataLoader pin_memory: {train_loader.pin_memory}")
+
+            # Test if the slowdown is due to batch collection vs individual samples
+            if i == 0:  # Only for first batch
+                print("[DEBUG] Testing individual sample timing within batch...")
+                # Get the same indices that would be in this batch
+                batch_start_idx = i * batch_size
+                batch_end_idx = min(batch_start_idx + batch_size, len(train_ds))
+                individual_times = []
+
+                for sample_idx in range(batch_start_idx, batch_end_idx):
+                    single_sample_start = time.time()
+                    _ = train_ds[sample_idx]  # Access individual sample
+                    single_sample_time = time.time() - single_sample_start
+                    individual_times.append(single_sample_time)
+
+                print(
+                    f"[DEBUG] Individual sample times: {[f'{t:.3f}s' for t in individual_times]}"
+                )
+                print(f"[DEBUG] Sum of individual times: {sum(individual_times):.3f}s")
+                print(f"[DEBUG] Actual batch time from DataLoader: {batch_time:.3f}s")
+                print(f"[DEBUG] Overhead: {batch_time - sum(individual_times):.3f}s")
 
             # Force garbage collection between batches
             del batch
