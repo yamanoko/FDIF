@@ -155,7 +155,7 @@ def make_data_loder(
         # For large datasets, cache a smaller portion but use more workers
         cache_rate = 0.2  # Cache 20% of data
         cache_num = min(200, int(len(datalist) * cache_rate))  # Max 200 samples
-        num_workers = 8
+        # num_workers = 8
         print(
             f"[INFO] Large dataset detected. Using cache_rate={cache_rate}, cache_num={cache_num}"
         )
@@ -163,21 +163,23 @@ def make_data_loder(
         # For small datasets, cache everything
         cache_rate = 1.0
         cache_num = len(datalist)
-        num_workers = 4
+        # num_workers = 4
         print(f"[INFO] Small dataset detected. Caching all {cache_num} samples")
 
-    train_ds = CacheDataset(
-        data=datalist,
-        transform=train_transforms,
-        cache_num=cache_num,
-        cache_rate=cache_rate,
-        num_workers=num_workers,
-    )
-
-    # train_ds = Dataset(
+    # train_ds = CacheDataset(
     #     data=datalist,
     #     transform=train_transforms,
+    #     cache_num=cache_num,
+    #     cache_rate=cache_rate,
+    #     num_workers=num_workers,
     # )
+
+    from monai.data import Dataset
+
+    train_ds = Dataset(
+        data=datalist,
+        transform=train_transforms,
+    )
     train_ds_time = time.time() - train_ds_start
     print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
     # train_ds = Dataset(
