@@ -51,7 +51,9 @@ def make_data_loder(
     print("[TIMING] Starting data loader creation...")
     start_time = time.time()
 
-    num_samples = 4
+    # Reduce num_samples to 1 to avoid multiple crops per image which can cause confusion in timing
+    # num_samples=4 means 4 random crops per image, effectively making batch size 4x larger
+    num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -132,13 +134,18 @@ def make_data_loder(
 
     datalist = load_decathlon_datalist(data_json_path, True, "training")
     val_files = load_decathlon_datalist(data_json_path, True, "validation")
+
+    print(f"[TIMING] Loading training dataset with {len(datalist)} samples...")
+    train_ds_start = time.time()
     train_ds = CacheDataset(
         data=datalist,
         transform=train_transforms,
-        cache_num=24,
+        cache_num=12,  # Reduced from 24 to save memory and improve loading speed
         cache_rate=1.0,
-        num_workers=8,
+        num_workers=4,  # Reduced from 8 to avoid overloading
     )
+    train_ds_time = time.time() - train_ds_start
+    print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
     # train_ds = Dataset(
     #     data=datalist,
     #     transform=train_transforms,
@@ -155,6 +162,8 @@ def make_data_loder(
     #     shuffle=True,
     #     num_workers=0,
     # )
+    print(f"[TIMING] Loading validation dataset with {len(val_files)} samples...")
+    val_ds_start = time.time()
     val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
@@ -162,6 +171,8 @@ def make_data_loder(
         cache_rate=1.0,
         num_workers=4,
     )
+    val_ds_time = time.time() - val_ds_start
+    print(f"[TIMING] Validation dataset created in {val_ds_time:.2f} seconds")
     # val_ds = Dataset(
     #     data=val_files,
     #     transform=val_transforms,
@@ -328,24 +339,42 @@ def train(
     for step, batch in enumerate(epoch_iterator):
         batch_start_time = time.time()
         step += 1
+
+        # Data transfer timing
+        data_transfer_start = time.time()
         x, y = (batch["image"].cuda(), batch["label"].cuda())
+        data_transfer_time = time.time() - data_transfer_start
+
+        # Forward pass timing
+        forward_start = time.time()
         with torch.autocast("cuda"):
             logit_map = model(x)
             loss = loss_function(logit_map, y)
+        forward_time = time.time() - forward_start
+
+        # Backward pass timing
+        backward_start = time.time()
         scaler.scale(loss).backward()
         epoch_loss += loss.item()
         scaler.unscale_(optimizer)
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
+        backward_time = time.time() - backward_start
 
         # Track batch processing time
         batch_end_time = time.time()
         batch_time = batch_end_time - batch_start_time
         batch_times.append(batch_time)
 
+        # Print detailed timing every 10 steps
+        if step % 10 == 0:
+            print(
+                f"[DETAILED TIMING] Step {step}: Total={batch_time:.2f}s, Data={data_transfer_time:.3f}s, Forward={forward_time:.2f}s, Backward={backward_time:.2f}s, Batch shape: {x.shape}"
+            )
+
         epoch_iterator.set_description(  # noqa: B038
-            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s)"
+            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s) (batch_size={x.shape[0]})"
         )
         if (
             global_step % eval_num == 0 and global_step != 0
