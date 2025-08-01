@@ -48,6 +48,9 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
+    print("[TIMING] Starting data loader creation...")
+    start_time = time.time()
+
     num_samples = 4
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -165,6 +168,12 @@ def make_data_loder(
     # )
     val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+
+    end_time = time.time()
+    print(
+        f"[TIMING] Data loader creation completed in {end_time - start_time:.2f} seconds"
+    )
+
     return train_loader, val_loader
 
 
@@ -176,6 +185,9 @@ def create_model(
     pretrained_path=None,
     pretraining_out_channel=14,
 ):
+    print(f"[TIMING] Starting model creation for {model_name}...")
+    start_time = time.time()
+
     if model_name == "vnet":
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
@@ -232,10 +244,17 @@ def create_model(
             print(f"Model {model_name} loaded from {pretrained_path}")
     else:
         raise ValueError(f"Unknown model name: {model_name}")
+
+    end_time = time.time()
+    print(f"[TIMING] Model creation completed in {end_time - start_time:.2f} seconds")
+
     return model
 
 
 def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
+    print(f"[TIMING] Starting validation at step {global_step}...")
+    validation_start = time.time()
+
     model.eval()
     with torch.no_grad():
         for batch in epoch_iterator_val:
@@ -275,6 +294,12 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
                     f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
 
+    validation_end = time.time()
+    validation_time = validation_end - validation_start
+    print(
+        f"[TIMING] Validation completed in {validation_time:.2f} seconds (Dice: {mean_dice_val:.4f})"
+    )
+
     return mean_dice_val, raw_dice_score
 
 
@@ -287,13 +312,21 @@ def train(
     out_channel=14,
     is_real_data=True,
 ):
+    print(f"[TIMING] Starting training epoch at step {global_step}...")
+    epoch_start_time = time.time()
+
     model.train()
     epoch_loss = 0
     step = 0
+
+    # Track batch processing time
+    batch_times = []
+
     epoch_iterator = tqdm(
         train_loader, desc="Training (X / X Steps) (loss=X.X)", dynamic_ncols=True
     )
     for step, batch in enumerate(epoch_iterator):
+        batch_start_time = time.time()
         step += 1
         x, y = (batch["image"].cuda(), batch["label"].cuda())
         with torch.autocast("cuda"):
@@ -305,8 +338,14 @@ def train(
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
+
+        # Track batch processing time
+        batch_end_time = time.time()
+        batch_time = batch_end_time - batch_start_time
+        batch_times.append(batch_time)
+
         epoch_iterator.set_description(  # noqa: B038
-            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f})"
+            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s)"
         )
         if (
             global_step % eval_num == 0 and global_step != 0
@@ -381,6 +420,19 @@ def train(
                     )
                 )
         global_step += 1
+
+    # Print epoch timing summary
+    epoch_end_time = time.time()
+    total_epoch_time = epoch_end_time - epoch_start_time
+    if batch_times:
+        avg_batch_time = sum(batch_times) / len(batch_times)
+        min_batch_time = min(batch_times)
+        max_batch_time = max(batch_times)
+        print(f"[TIMING] Epoch completed in {total_epoch_time:.2f} seconds")
+        print(
+            f"[TIMING] Processed {len(batch_times)} batches - Avg: {avg_batch_time:.2f}s, Min: {min_batch_time:.2f}s, Max: {max_batch_time:.2f}s"
+        )
+
     return global_step, dice_val_best, global_step_best
 
 
@@ -388,6 +440,9 @@ def perform_inference_and_visualize(
     model, val_loader, out_dir, device, grid_size, out_channel
 ):
     """Perform inference on validation data and create visualizations."""
+    print("[TIMING] Starting inference and visualization...")
+    inference_start = time.time()
+
     model.eval()
 
     # Get one validation sample
@@ -423,6 +478,11 @@ def perform_inference_and_visualize(
         create_slice_visualization(
             image, label, prediction, out_dir, mean_dice, out_channel
         )
+
+    inference_end = time.time()
+    print(
+        f"[TIMING] Inference and visualization completed in {inference_end - inference_start:.2f} seconds"
+    )
 
 
 def create_slice_visualization(
