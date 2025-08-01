@@ -55,10 +55,30 @@ def make_data_loder(
     # num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+
+    # Optimize file I/O for large datasets
+    if os.name != "nt":  # Unix/Linux systems
+        # Increase file descriptor limits and optimize I/O
+        import resource
+
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (65536, 65536))
+        except Exception:
+            pass
+
+    # Set environment variables for better performance
+    os.environ["OMP_NUM_THREADS"] = "4"  # Limit OpenMP threads
+    os.environ["MKL_NUM_THREADS"] = "4"  # Limit Intel MKL threads
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     base_transforms = [
-        LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+        LoadImaged(
+            keys=["image", "label"],
+            ensure_channel_first=True,
+            image_only=False,  # Ensure consistent loading
+            allow_missing_keys=False,  # Strict error checking
+        ),
         ScaleIntensityRanged(
             keys=["image"],
             a_min=-175,
@@ -166,20 +186,35 @@ def make_data_loder(
         # num_workers = 4
         print(f"[INFO] Small dataset detected. Caching all {cache_num} samples")
 
-    # train_ds = CacheDataset(
-    #     data=datalist,
-    #     transform=train_transforms,
-    #     cache_num=cache_num,
-    #     cache_rate=cache_rate,
-    #     num_workers=num_workers,
-    # )
-
+    # Use optimized dataset strategy based on size
     from monai.data import Dataset
 
-    train_ds = Dataset(
-        data=datalist,
-        transform=train_transforms,
-    )
+    if len(datalist) > 1000:
+        print(
+            f"[INFO] Large dataset detected ({len(datalist)} samples). Using CacheDataset with partial caching..."
+        )
+        # For large datasets, use CacheDataset with limited cache to avoid LoadImaged bottleneck
+        cache_rate = 0.1  # Cache 10% of data to avoid memory issues
+        cache_num = min(100, int(len(datalist) * cache_rate))  # Max 100 samples
+
+        train_ds = CacheDataset(
+            data=datalist,
+            transform=train_transforms,
+            cache_num=cache_num,
+            cache_rate=cache_rate,
+            num_workers=4,  # Use multiple workers for caching
+        )
+        print(
+            f"[INFO] CacheDataset created with cache_num={cache_num}, cache_rate={cache_rate}"
+        )
+    else:
+        print(
+            f"[INFO] Small dataset detected ({len(datalist)} samples). Using regular Dataset..."
+        )
+        train_ds = Dataset(
+            data=datalist,
+            transform=train_transforms,
+        )
     train_ds_time = time.time() - train_ds_start
     print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
     # train_ds = Dataset(
@@ -189,17 +224,23 @@ def make_data_loder(
     from monai.data import DataLoader
 
     # Test both DataLoader types to compare performance
-    print("[DEBUG] Using regular DataLoader for comparison...")
+    print("[DEBUG] Using regular DataLoader with optimized settings...")
 
     # Force garbage collection before creating DataLoader
     gc.collect()
+
+    # Try with num_workers > 0 to enable multiprocessing for large datasets
+    num_workers = 2 if len(train_ds) > 1000 else 0
+    print(f"[DEBUG] Using num_workers={num_workers} for dataset size {len(train_ds)}")
 
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,  # Start with 0 workers
-        pin_memory=False,  # Disable pin_memory to reduce overhead
+        num_workers=num_workers,  # Enable multiprocessing for large datasets
+        pin_memory=torch.cuda.is_available(),  # Enable pin_memory if CUDA is available
+        prefetch_factor=2 if num_workers > 0 else None,  # Only set if num_workers > 0
+        persistent_workers=True if num_workers > 0 else False,  # Keep workers alive
     )
 
     # Alternative: Uncomment to test ThreadDataLoader
@@ -251,12 +292,71 @@ def make_data_loder(
         f"[TIMING] Data loader creation completed in {end_time - start_time:.2f} seconds"
     )
 
-    # DEBUG: Test data loading speed
-    print("[DEBUG] Testing data loader speed...")
+    # DEBUG: Test data loading speed with optimizations
+    print("[DEBUG] Testing optimized data loader speed...")
     print(f"[DEBUG] Dataset size: {len(train_ds)}")
     print(f"[DEBUG] DataLoader length: {len(train_loader)}")
     print(f"[DEBUG] Batch size: {batch_size}")
     print(f"[DEBUG] Expected batches: {len(train_ds) // batch_size}")
+    print(f"[DEBUG] DataLoader num_workers: {train_loader.num_workers}")
+    print(f"[DEBUG] DataLoader pin_memory: {train_loader.pin_memory}")
+
+    # Test if caching is effective
+    if hasattr(train_ds, "cache_num"):
+        print(f"[DEBUG] Using CacheDataset with cache_num: {train_ds.cache_num}")
+        print(f"[DEBUG] Cache rate: {getattr(train_ds, 'cache_rate', 'unknown')}")
+        if hasattr(train_ds, "_cache"):
+            cached_indices = [
+                i for i, item in enumerate(train_ds._cache) if item is not None
+            ]
+            print(f"[DEBUG] Actually cached indices count: {len(cached_indices)}")
+            print(f"[DEBUG] First few cached indices: {cached_indices[:10]}")
+    else:
+        print("[DEBUG] Using regular Dataset (no caching)")
+
+    # Test dataset access patterns more thoroughly
+    print("[DEBUG] Testing dataset access pattern efficiency...")
+
+    # Test sequential vs random access
+    if len(train_ds) > 100:
+        print("[DEBUG] Testing sequential access pattern...")
+        sequential_times = []
+        for i in range(5):  # Test first 5 samples
+            seq_start = time.time()
+            _ = train_ds[i]
+            seq_time = time.time() - seq_start
+            sequential_times.append(seq_time)
+        print(
+            f"[DEBUG] Sequential access times: {[f'{t:.3f}s' for t in sequential_times]}"
+        )
+
+        print("[DEBUG] Testing random access pattern...")
+        import random
+
+        random_indices = random.sample(range(len(train_ds)), 5)
+        random_times = []
+        for i in random_indices:
+            rand_start = time.time()
+            _ = train_ds[i]
+            rand_time = time.time() - rand_start
+            random_times.append(rand_time)
+        print(f"[DEBUG] Random access times: {[f'{t:.3f}s' for t in random_times]}")
+        print(f"[DEBUG] Random indices accessed: {random_indices}")
+
+    # Test if there's a pattern related to dataset size
+    print("[DEBUG] Dataset metadata:")
+    print(f"[DEBUG]   - Type: {type(train_ds).__name__}")
+    print(f"[DEBUG]   - Length: {len(train_ds)}")
+    print(
+        f"[DEBUG]   - Data source: {type(datalist).__name__} with {len(datalist)} entries"
+    )
+
+    # Check if the issue is with the underlying data structure
+    if hasattr(train_ds, "data"):
+        print(f"[DEBUG]   - Data type: {type(train_ds.data).__name__}")
+        print(
+            f"[DEBUG]   - Data length: {len(train_ds.data) if hasattr(train_ds.data, '__len__') else 'unknown'}"
+        )
 
     # Add detailed debugging for dataset access patterns
     print(f"[DEBUG] Dataset type: {type(train_ds).__name__}")
@@ -359,16 +459,65 @@ def make_data_loder(
             # Test if the slowdown is due to batch collection vs individual samples
             if i == 0:  # Only for first batch
                 print("[DEBUG] Testing individual sample timing within batch...")
-                # Get the same indices that would be in this batch
+
+                # Test direct dataset access vs DataLoader batch access
+                print("[DEBUG] Comparing dataset access patterns...")
+
+                # Method 1: Direct individual access (what we tested above)
                 batch_start_idx = i * batch_size
                 batch_end_idx = min(batch_start_idx + batch_size, len(train_ds))
                 individual_times = []
 
+                print(
+                    f"[DEBUG] Testing indices {batch_start_idx} to {batch_end_idx - 1}"
+                )
                 for sample_idx in range(batch_start_idx, batch_end_idx):
                     single_sample_start = time.time()
-                    _ = train_ds[sample_idx]  # Access individual sample
+                    sample = train_ds[sample_idx]  # Access individual sample
                     single_sample_time = time.time() - single_sample_start
                     individual_times.append(single_sample_time)
+
+                    # Check if this is a cached sample
+                    if hasattr(train_ds, "_cache") and hasattr(train_ds, "cache_num"):
+                        is_cached = (
+                            sample_idx < train_ds.cache_num
+                            if hasattr(train_ds, "cache_num")
+                            else False
+                        )
+                        print(
+                            f"[DEBUG]   Sample {sample_idx}: {single_sample_time:.3f}s (cached: {is_cached})"
+                        )
+
+                # Method 2: Test if dataset length calculation is slow
+                len_start = time.time()
+                dataset_len = len(train_ds)
+                len_time = time.time() - len_start
+                print(
+                    f"[DEBUG] Dataset len() calculation time: {len_time:.3f}s (length: {dataset_len})"
+                )
+
+                # Method 3: Test batch creation overhead
+                print("[DEBUG] Testing batch collation overhead...")
+                batch_indices = list(range(batch_start_idx, batch_end_idx))
+
+                # Simulate what DataLoader does internally
+                collate_start = time.time()
+                batch_samples = []
+                for idx in batch_indices:
+                    batch_samples.append(train_ds[idx])
+
+                # Test default_collate equivalent
+                from torch.utils.data.dataloader import default_collate
+
+                try:
+                    _ = default_collate(batch_samples)  # Don't store unused result
+                    collate_time = time.time() - collate_start
+                    print(f"[DEBUG] Manual batch collation time: {collate_time:.3f}s")
+                except Exception as e:
+                    collate_time = time.time() - collate_start
+                    print(
+                        f"[DEBUG] Manual batch collation failed: {e}, time: {collate_time:.3f}s"
+                    )
 
                 print(
                     f"[DEBUG] Individual sample times: {[f'{t:.3f}s' for t in individual_times]}"
@@ -376,6 +525,18 @@ def make_data_loder(
                 print(f"[DEBUG] Sum of individual times: {sum(individual_times):.3f}s")
                 print(f"[DEBUG] Actual batch time from DataLoader: {batch_time:.3f}s")
                 print(f"[DEBUG] Overhead: {batch_time - sum(individual_times):.3f}s")
+
+                # Additional analysis
+                overhead = batch_time - sum(individual_times)
+                if overhead > 1.0:  # If overhead is significant
+                    print(f"[DEBUG] SIGNIFICANT OVERHEAD DETECTED: {overhead:.3f}s")
+                    print("[DEBUG] This suggests DataLoader internal bottleneck")
+                    print("[DEBUG] Possible causes:")
+                    print("[DEBUG]   - Dataset indexing inefficiency")
+                    print("[DEBUG]   - Transform pipeline caching issues")
+                    print("[DEBUG]   - Memory allocation/deallocation")
+                    print("[DEBUG]   - Python GIL contention")
+                    print("[DEBUG]   - File system metadata operations")
 
             # Force garbage collection between batches
             del batch
