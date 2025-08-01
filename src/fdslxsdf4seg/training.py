@@ -9,10 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from monai.data import (
-    # ThreadDataLoader,
-    DataLoader,
-    # CacheDataset,
-    Dataset,
+    CacheDataset,
+    ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
 )
@@ -131,42 +129,42 @@ def make_data_loder(
 
     datalist = load_decathlon_datalist(data_json_path, True, "training")
     val_files = load_decathlon_datalist(data_json_path, True, "validation")
-    # train_ds = CacheDataset(
-    #     data=datalist,
-    #     transform=train_transforms,
-    #     cache_num=24,
-    #     cache_rate=1.0,
-    #     num_workers=8,
-    # )
-    train_ds = Dataset(
+    train_ds = CacheDataset(
         data=datalist,
         transform=train_transforms,
+        cache_num=24,
+        cache_rate=1.0,
+        num_workers=8,
     )
-    # train_loader = ThreadDataLoader(
-    #     train_ds,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=0,
+    # train_ds = Dataset(
+    #     data=datalist,
+    #     transform=train_transforms,
     # )
-    train_loader = DataLoader(
+    train_loader = ThreadDataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=0,
     )
-    # val_ds = CacheDataset(
-    #     data=val_files,
-    #     transform=val_transforms,
-    #     cache_num=6,
-    #     cache_rate=1.0,
-    #     num_workers=4,
+    # train_loader = DataLoader(
+    #     train_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=0,
     # )
-    val_ds = Dataset(
+    val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
+        cache_num=6,
+        cache_rate=1.0,
+        num_workers=4,
     )
-    # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    # val_ds = Dataset(
+    #     data=val_files,
+    #     transform=val_transforms,
+    # )
+    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
 
 
