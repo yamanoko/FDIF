@@ -9,8 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from monai.data import (
-    CacheDataset,
-    ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
 )
@@ -137,25 +135,41 @@ def make_data_loder(
 
     print(f"[TIMING] Loading training dataset with {len(datalist)} samples...")
     train_ds_start = time.time()
-    train_ds = CacheDataset(
+
+    # Try using Dataset instead of CacheDataset for debugging
+    from monai.data import Dataset
+
+    train_ds = Dataset(
         data=datalist,
         transform=train_transforms,
-        cache_num=12,  # Reduced from 24 to save memory and improve loading speed
-        cache_rate=1.0,
-        num_workers=4,  # Reduced from 8 to avoid overloading
     )
+    # train_ds = CacheDataset(
+    #     data=datalist,
+    #     transform=train_transforms,
+    #     cache_num=12,  # Reduced from 24 to save memory and improve loading speed
+    #     cache_rate=1.0,
+    #     num_workers=4,  # Reduced from 8 to avoid overloading
+    # )
     train_ds_time = time.time() - train_ds_start
     print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
     # train_ds = Dataset(
     #     data=datalist,
     #     transform=train_transforms,
     # )
-    train_loader = ThreadDataLoader(
+    from monai.data import DataLoader
+
+    train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=0,
     )
+    # train_loader = ThreadDataLoader(
+    #     train_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=0,
+    # )
     # train_loader = DataLoader(
     #     train_ds,
     #     batch_size=batch_size,
@@ -164,20 +178,25 @@ def make_data_loder(
     # )
     print(f"[TIMING] Loading validation dataset with {len(val_files)} samples...")
     val_ds_start = time.time()
-    val_ds = CacheDataset(
+    val_ds = Dataset(
         data=val_files,
         transform=val_transforms,
-        cache_num=6,
-        cache_rate=1.0,
-        num_workers=4,
     )
+    # val_ds = CacheDataset(
+    #     data=val_files,
+    #     transform=val_transforms,
+    #     cache_num=6,
+    #     cache_rate=1.0,
+    #     num_workers=4,
+    # )
     val_ds_time = time.time() - val_ds_start
     print(f"[TIMING] Validation dataset created in {val_ds_time:.2f} seconds")
     # val_ds = Dataset(
     #     data=val_files,
     #     transform=val_transforms,
     # )
-    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
     end_time = time.time()
@@ -336,9 +355,31 @@ def train(
     epoch_iterator = tqdm(
         train_loader, desc="Training (X / X Steps) (loss=X.X)", dynamic_ncols=True
     )
+
+    # Add timing for data loading
+    data_loading_times = []
+    data_loading_start = time.time()  # Initialize for first batch
+
     for step, batch in enumerate(epoch_iterator):
+        # Measure time to get the next batch (this is where the bottleneck might be)
+        if step > 0:  # Skip first iteration as it might include initialization
+            data_loading_end = time.time()
+            data_loading_time = data_loading_end - data_loading_start
+            data_loading_times.append(data_loading_time)
+            if step <= 5:  # Print for first few batches
+                print(f"[DEBUG] Time to load batch {step}: {data_loading_time:.2f}s")
+
+        iteration_start_time = time.time()  # Track the full iteration time
         batch_start_time = time.time()
         step += 1
+
+        # Print batch info for debugging
+        if step <= 3:  # Print for first 3 batches to debug
+            print(f"[DEBUG] Batch {step}: Keys in batch: {list(batch.keys())}")
+            if "image" in batch:
+                print(f"[DEBUG] Batch {step}: Image shape: {batch['image'].shape}")
+            if "label" in batch:
+                print(f"[DEBUG] Batch {step}: Label shape: {batch['label'].shape}")
 
         # Data transfer timing
         data_transfer_start = time.time()
@@ -373,9 +414,16 @@ def train(
                 f"[DETAILED TIMING] Step {step}: Total={batch_time:.2f}s, Data={data_transfer_time:.3f}s, Forward={forward_time:.2f}s, Backward={backward_time:.2f}s, Batch shape: {x.shape}"
             )
 
+        # Calculate full iteration time (from start of iteration to end)
+        iteration_end_time = time.time()
+        full_iteration_time = iteration_end_time - iteration_start_time
+
         epoch_iterator.set_description(  # noqa: B038
-            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s) (batch_size={x.shape[0]})"
+            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s) (iter_time={full_iteration_time:.2f}s) (batch_size={x.shape[0]})"
         )
+
+        # Set timer for next data loading measurement
+        data_loading_start = time.time()
         if (
             global_step % eval_num == 0 and global_step != 0
         ) or global_step == max_iterations:
@@ -461,6 +509,18 @@ def train(
         print(
             f"[TIMING] Processed {len(batch_times)} batches - Avg: {avg_batch_time:.2f}s, Min: {min_batch_time:.2f}s, Max: {max_batch_time:.2f}s"
         )
+
+        # Print data loading timing statistics
+        if data_loading_times:
+            avg_data_loading = sum(data_loading_times) / len(data_loading_times)
+            min_data_loading = min(data_loading_times)
+            max_data_loading = max(data_loading_times)
+            print(
+                f"[TIMING] Data loading times - Avg: {avg_data_loading:.2f}s, Min: {min_data_loading:.2f}s, Max: {max_data_loading:.2f}s"
+            )
+            print(
+                f"[TIMING] Total data loading time: {sum(data_loading_times):.2f}s ({sum(data_loading_times) / total_epoch_time * 100:.1f}% of epoch time)"
+            )
 
     return global_step, dice_val_best, global_step_best
 
