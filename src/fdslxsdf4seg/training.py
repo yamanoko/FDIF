@@ -55,29 +55,11 @@ def make_data_loder(
     # num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-
-    # Optimize file I/O for large datasets
-    if os.name != "nt":  # Unix/Linux systems
-        # Increase file descriptor limits and optimize I/O
-        import resource
-
-        try:
-            resource.setrlimit(resource.RLIMIT_NOFILE, (65536, 65536))
-        except Exception:
-            pass
-
-    # Set environment variables for better performance
-    os.environ["OMP_NUM_THREADS"] = "4"  # Limit OpenMP threads
-    os.environ["MKL_NUM_THREADS"] = "4"  # Limit Intel MKL threads
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     base_transforms = [
         LoadImaged(
-            keys=["image", "label"],
-            ensure_channel_first=True,
-            image_only=False,  # Ensure consistent loading
-            allow_missing_keys=False,  # Strict error checking
+            keys=["image", "label"], ensure_channel_first=True, reader="ITKReader"
         ),
         ScaleIntensityRanged(
             keys=["image"],
@@ -186,35 +168,20 @@ def make_data_loder(
         # num_workers = 4
         print(f"[INFO] Small dataset detected. Caching all {cache_num} samples")
 
-    # Use optimized dataset strategy based on size
+    # train_ds = CacheDataset(
+    #     data=datalist,
+    #     transform=train_transforms,
+    #     cache_num=cache_num,
+    #     cache_rate=cache_rate,
+    #     num_workers=num_workers,
+    # )
+
     from monai.data import Dataset
 
-    if len(datalist) > 1000:
-        print(
-            f"[INFO] Large dataset detected ({len(datalist)} samples). Using CacheDataset with partial caching..."
-        )
-        # For large datasets, use CacheDataset with limited cache to avoid LoadImaged bottleneck
-        cache_rate = 0.1  # Cache 10% of data to avoid memory issues
-        cache_num = min(100, int(len(datalist) * cache_rate))  # Max 100 samples
-
-        train_ds = CacheDataset(
-            data=datalist,
-            transform=train_transforms,
-            cache_num=cache_num,
-            cache_rate=cache_rate,
-            num_workers=4,  # Use multiple workers for caching
-        )
-        print(
-            f"[INFO] CacheDataset created with cache_num={cache_num}, cache_rate={cache_rate}"
-        )
-    else:
-        print(
-            f"[INFO] Small dataset detected ({len(datalist)} samples). Using regular Dataset..."
-        )
-        train_ds = Dataset(
-            data=datalist,
-            transform=train_transforms,
-        )
+    train_ds = Dataset(
+        data=datalist,
+        transform=train_transforms,
+    )
     train_ds_time = time.time() - train_ds_start
     print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
     # train_ds = Dataset(
@@ -224,23 +191,17 @@ def make_data_loder(
     from monai.data import DataLoader
 
     # Test both DataLoader types to compare performance
-    print("[DEBUG] Using regular DataLoader with optimized settings...")
+    print("[DEBUG] Using regular DataLoader for comparison...")
 
     # Force garbage collection before creating DataLoader
     gc.collect()
-
-    # Try with num_workers > 0 to enable multiprocessing for large datasets
-    num_workers = 2 if len(train_ds) > 1000 else 0
-    print(f"[DEBUG] Using num_workers={num_workers} for dataset size {len(train_ds)}")
 
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,  # Enable multiprocessing for large datasets
-        pin_memory=torch.cuda.is_available(),  # Enable pin_memory if CUDA is available
-        prefetch_factor=2 if num_workers > 0 else None,  # Only set if num_workers > 0
-        persistent_workers=True if num_workers > 0 else False,  # Keep workers alive
+        num_workers=0,  # Start with 0 workers
+        pin_memory=False,  # Disable pin_memory to reduce overhead
     )
 
     # Alternative: Uncomment to test ThreadDataLoader
@@ -292,20 +253,12 @@ def make_data_loder(
         f"[TIMING] Data loader creation completed in {end_time - start_time:.2f} seconds"
     )
 
-    # DEBUG: Test data loading speed with optimizations
-    print("[DEBUG] Testing optimized data loader speed...")
+    # DEBUG: Test data loading speed
+    print("[DEBUG] Testing data loader speed...")
     print(f"[DEBUG] Dataset size: {len(train_ds)}")
     print(f"[DEBUG] DataLoader length: {len(train_loader)}")
     print(f"[DEBUG] Batch size: {batch_size}")
     print(f"[DEBUG] Expected batches: {len(train_ds) // batch_size}")
-    print(f"[DEBUG] DataLoader num_workers: {train_loader.num_workers}")
-    print(f"[DEBUG] DataLoader pin_memory: {train_loader.pin_memory}")
-
-    # Test if caching is effective
-    if hasattr(train_ds, "cache_num"):
-        print(f"[DEBUG] Using CacheDataset with cache_num: {train_ds.cache_num}")
-    else:
-        print("[DEBUG] Using regular Dataset (no caching)")
 
     # Add detailed debugging for dataset access patterns
     print(f"[DEBUG] Dataset type: {type(train_ds).__name__}")
