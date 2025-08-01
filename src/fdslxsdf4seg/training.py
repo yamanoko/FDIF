@@ -1,12 +1,13 @@
 import argparse
+import gc
 import json
 import os
-
-# Import visualization functions from visualize_training_metrics.py
 import time
 
+# Import visualization functions from visualize_training_metrics.py
 import matplotlib.pyplot as plt
 import numpy as np
+import psutil
 import torch
 from monai.data import (
     decollate_batch,
@@ -183,14 +184,32 @@ def make_data_loder(
     #     data=datalist,
     #     transform=train_transforms,
     # )
-    from monai.data import ThreadDataLoader
+    from monai.data import DataLoader
 
-    train_loader = ThreadDataLoader(
+    # Test both DataLoader types to compare performance
+    print("[DEBUG] Using regular DataLoader for comparison...")
+
+    # Force garbage collection before creating DataLoader
+    gc.collect()
+
+    train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,  # Use 0 for ThreadDataLoader
+        num_workers=0,  # Start with 0 workers
+        pin_memory=False,  # Disable pin_memory to reduce overhead
+        prefetch_factor=1,  # Minimal prefetching to reduce memory pressure
+        persistent_workers=False,  # Don't keep workers alive between epochs
     )
+
+    # Alternative: Uncomment to test ThreadDataLoader
+    # from monai.data import ThreadDataLoader
+    # train_loader = ThreadDataLoader(
+    #     train_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=0,  # Use 0 for ThreadDataLoader
+    # )
 
     # train_loader = DataLoader(
     #     train_ds,
@@ -222,7 +241,8 @@ def make_data_loder(
     #     data=val_files,
     #     transform=val_transforms,
     # )
-    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    # Use regular DataLoader for validation as well
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
@@ -230,6 +250,53 @@ def make_data_loder(
     print(
         f"[TIMING] Data loader creation completed in {end_time - start_time:.2f} seconds"
     )
+
+    # DEBUG: Test data loading speed
+    print("[DEBUG] Testing data loader speed...")
+    print(f"[DEBUG] Dataset size: {len(train_ds)}")
+    print(f"[DEBUG] DataLoader length: {len(train_loader)}")
+    print(f"[DEBUG] Batch size: {batch_size}")
+    print(f"[DEBUG] Expected batches: {len(train_ds) // batch_size}")
+
+    test_start = time.time()
+    test_loader_iter = iter(train_loader)
+
+    # Force garbage collection before testing
+    gc.collect()
+
+    try:
+        # Try to get first few batches to understand the pattern
+        for i in range(min(3, len(train_loader))):
+            batch_start = time.time()
+
+            # Monitor memory before batch loading
+            process = psutil.Process()
+            memory_before = process.memory_info().rss / 1024 / 1024  # MB
+
+            batch = next(test_loader_iter)
+            batch_time = time.time() - batch_start
+
+            # Monitor memory after batch loading
+            memory_after = process.memory_info().rss / 1024 / 1024  # MB
+            memory_increase = memory_after - memory_before
+
+            batch_size_actual = (
+                batch["image"].shape[0] if "image" in batch else "unknown"
+            )
+            print(f"[DEBUG] Test batch {i + 1} loading time: {batch_time:.2f}s")
+            print(f"[DEBUG] Batch size: {batch_size_actual}")
+            print(
+                f"[DEBUG] Memory before: {memory_before:.1f} MB, after: {memory_after:.1f} MB (increase: {memory_increase:.1f} MB)"
+            )
+
+            # Force garbage collection between batches
+            del batch
+            gc.collect()
+
+    except StopIteration:
+        print("[DEBUG] End of test data loader")
+    test_end = time.time()
+    print(f"[DEBUG] Total test loading time: {test_end - test_start:.2f}s")
 
     return train_loader, val_loader
 
@@ -388,6 +455,13 @@ def train(
     data_loading_start = time.time()  # Initialize for first batch
 
     for step, batch in enumerate(epoch_iterator):
+        # Memory monitoring
+        process = psutil.Process()
+        memory_before = process.memory_info().rss / 1024 / 1024  # MB
+
+        # Measure time from start of for loop to getting batch
+        batch_acquisition_time = time.time() - data_loading_start
+
         # Measure time to get the next batch (this is where the bottleneck might be)
         if step > 0:  # Skip first iteration as it might include initialization
             data_loading_end = time.time()
@@ -395,6 +469,8 @@ def train(
             data_loading_times.append(data_loading_time)
             if step <= 5:  # Print for first few batches
                 print(f"[DEBUG] Time to load batch {step}: {data_loading_time:.2f}s")
+                print(f"[DEBUG] Batch acquisition time: {batch_acquisition_time:.2f}s")
+                print(f"[DEBUG] Memory before batch processing: {memory_before:.1f} MB")
 
         iteration_start_time = time.time()  # Track the full iteration time
         batch_start_time = time.time()
@@ -405,8 +481,43 @@ def train(
             print(f"[DEBUG] Batch {step}: Keys in batch: {list(batch.keys())}")
             if "image" in batch:
                 print(f"[DEBUG] Batch {step}: Image shape: {batch['image'].shape}")
+                print(
+                    f"[DEBUG] Batch {step}: Image memory size: {batch['image'].element_size() * batch['image'].nelement() / 1024 / 1024:.1f} MB"
+                )
             if "label" in batch:
                 print(f"[DEBUG] Batch {step}: Label shape: {batch['label'].shape}")
+
+            # Additional memory info after batch is loaded
+            memory_after = process.memory_info().rss / 1024 / 1024  # MB
+            memory_increase = memory_after - memory_before
+            print(
+                f"[DEBUG] Memory after batch loaded: {memory_after:.1f} MB (increase: {memory_increase:.1f} MB)"
+            )
+
+            # GPU memory if available
+            if torch.cuda.is_available():
+                gpu_allocated = torch.cuda.memory_allocated() / 1024 / 1024  # MB
+                gpu_cached = torch.cuda.memory_reserved() / 1024 / 1024  # MB
+                print(
+                    f"[DEBUG] GPU Memory - Allocated: {gpu_allocated:.1f} MB, Reserved: {gpu_cached:.1f} MB"
+                )
+                print(
+                    f"[DEBUG] Batch {step}: Label memory size: {batch['label'].element_size() * batch['label'].nelement() / 1024 / 1024:.1f} MB"
+                )
+
+            # Memory usage monitoring
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            print(
+                f"[DEBUG] Batch {step}: CPU Memory usage: {memory_info.rss / 1024 / 1024:.1f} MB"
+            )
+            if torch.cuda.is_available():
+                print(
+                    f"[DEBUG] Batch {step}: GPU Memory allocated: {torch.cuda.memory_allocated() / 1024 / 1024:.1f} MB"
+                )
+                print(
+                    f"[DEBUG] Batch {step}: GPU Memory cached: {torch.cuda.memory_reserved() / 1024 / 1024:.1f} MB"
+                )
 
         # Data transfer timing
         data_transfer_start = time.time()
