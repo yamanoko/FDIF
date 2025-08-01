@@ -25,7 +25,7 @@ from monai.transforms import (
     EnsureTyped,
     LoadImaged,
     Orientationd,
-    RandCropByPosNegLabeld,
+    # RandCropByPosNegLabeld,
     RandFlipd,
     RandRotate90d,
     RandShiftIntensityd,
@@ -51,7 +51,7 @@ def make_data_loder(
 
     # Reduce num_samples to 1 to avoid multiple crops per image which can cause confusion in timing
     # num_samples=4 means 4 random crops per image, effectively making batch size 4x larger
-    num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
+    # num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -92,17 +92,17 @@ def make_data_loder(
         [
             EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
             # Simplified RandCropByPosNegLabeld - reduce computational complexity
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=spatial_size,
-                pos=1,
-                neg=1,
-                num_samples=num_samples,
-                image_key="image",
-                image_threshold=0,
-                allow_smaller=True,  # Allow smaller crops to speed up processing
-            ),
+            # RandCropByPosNegLabeld(
+            #     keys=["image", "label"],
+            #     label_key="label",
+            #     spatial_size=spatial_size,
+            #     pos=1,
+            #     neg=1,
+            #     num_samples=num_samples,
+            #     image_key="image",
+            #     image_threshold=0,
+            #     allow_smaller=True,  # Allow smaller crops to speed up processing
+            # ),
             # Reduce augmentation probabilities to speed up processing
             RandFlipd(
                 keys=["image", "label"],
