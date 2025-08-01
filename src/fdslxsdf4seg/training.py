@@ -66,8 +66,12 @@ def make_data_loder(
             b_max=1.0,
             clip=True,
         ),
+        # Optimize CropForegroundd for speed
         CropForegroundd(
-            keys=["image", "label"], source_key="image", allow_smaller=True
+            keys=["image", "label"],
+            source_key="image",
+            allow_smaller=True,
+            margin=10,  # Add margin to reduce computational overhead
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
     ]
@@ -81,9 +85,13 @@ def make_data_loder(
             )
         )
     train_transforms = base_transforms.copy()
+
+    # Simplified transforms for faster data loading
+    # Remove some heavy augmentations that might be causing slowdown
     train_transforms.extend(
         [
             EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
+            # Simplified RandCropByPosNegLabeld - reduce computational complexity
             RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -93,31 +101,33 @@ def make_data_loder(
                 num_samples=num_samples,
                 image_key="image",
                 image_threshold=0,
+                allow_smaller=True,  # Allow smaller crops to speed up processing
             ),
+            # Reduce augmentation probabilities to speed up processing
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[0],
-                prob=0.10,
+                prob=0.05,  # Reduced from 0.10
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[1],
-                prob=0.10,
+                prob=0.05,  # Reduced from 0.10
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[2],
-                prob=0.10,
+                prob=0.05,  # Reduced from 0.10
             ),
             RandRotate90d(
                 keys=["image", "label"],
-                prob=0.10,
+                prob=0.05,  # Reduced from 0.10
                 max_k=3,
             ),
             RandShiftIntensityd(
                 keys=["image"],
                 offsets=0.10,
-                prob=0.50,
+                prob=0.25,  # Reduced from 0.50
             ),
         ]
     )
@@ -136,19 +146,36 @@ def make_data_loder(
     print(f"[TIMING] Loading training dataset with {len(datalist)} samples...")
     train_ds_start = time.time()
 
-    # Try using Dataset instead of CacheDataset for debugging
-    from monai.data import Dataset
+    # Use CacheDataset with optimized settings for large datasets
+    from monai.data import CacheDataset
 
-    train_ds = Dataset(
+    # Calculate optimal cache settings based on dataset size
+    if len(datalist) > 1000:
+        # For large datasets, cache a smaller portion but use more workers
+        cache_rate = 0.2  # Cache 20% of data
+        cache_num = min(200, int(len(datalist) * cache_rate))  # Max 200 samples
+        num_workers = 8
+        print(
+            f"[INFO] Large dataset detected. Using cache_rate={cache_rate}, cache_num={cache_num}"
+        )
+    else:
+        # For small datasets, cache everything
+        cache_rate = 1.0
+        cache_num = len(datalist)
+        num_workers = 4
+        print(f"[INFO] Small dataset detected. Caching all {cache_num} samples")
+
+    train_ds = CacheDataset(
         data=datalist,
         transform=train_transforms,
+        cache_num=cache_num,
+        cache_rate=cache_rate,
+        num_workers=num_workers,
     )
-    # train_ds = CacheDataset(
+
+    # train_ds = Dataset(
     #     data=datalist,
     #     transform=train_transforms,
-    #     cache_num=12,  # Reduced from 24 to save memory and improve loading speed
-    #     cache_rate=1.0,
-    #     num_workers=4,  # Reduced from 8 to avoid overloading
     # )
     train_ds_time = time.time() - train_ds_start
     print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
@@ -156,15 +183,16 @@ def make_data_loder(
     #     data=datalist,
     #     transform=train_transforms,
     # )
-    from monai.data import DataLoader
+    from monai.data import ThreadDataLoader
 
-    train_loader = DataLoader(
+    train_loader = ThreadDataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=0,  # Use 0 for ThreadDataLoader
     )
-    # train_loader = ThreadDataLoader(
+
+    # train_loader = DataLoader(
     #     train_ds,
     #     batch_size=batch_size,
     #     shuffle=True,
@@ -178,24 +206,23 @@ def make_data_loder(
     # )
     print(f"[TIMING] Loading validation dataset with {len(val_files)} samples...")
     val_ds_start = time.time()
-    val_ds = Dataset(
+
+    # For validation, always use CacheDataset as it's typically smaller
+    val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
+        cache_num=len(val_files),  # Cache all validation data
+        cache_rate=1.0,
+        num_workers=4,
     )
-    # val_ds = CacheDataset(
-    #     data=val_files,
-    #     transform=val_transforms,
-    #     cache_num=6,
-    #     cache_rate=1.0,
-    #     num_workers=4,
-    # )
+
     val_ds_time = time.time() - val_ds_start
     print(f"[TIMING] Validation dataset created in {val_ds_time:.2f} seconds")
     # val_ds = Dataset(
     #     data=val_files,
     #     transform=val_transforms,
     # )
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
