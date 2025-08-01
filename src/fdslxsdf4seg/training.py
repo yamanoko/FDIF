@@ -9,9 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from monai.data import (
-    CacheDataset,
+    # ThreadDataLoader,
+    DataLoader,
+    # CacheDataset,
     Dataset,
-    ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
 )
@@ -141,24 +142,31 @@ def make_data_loder(
         data=datalist,
         transform=train_transforms,
     )
-    train_loader = ThreadDataLoader(
+    # train_loader = ThreadDataLoader(
+    #     train_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=0,
+    # )
+    train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
-    )
-    val_ds = CacheDataset(
-        data=val_files,
-        transform=val_transforms,
-        cache_num=6,
-        cache_rate=1.0,
         num_workers=4,
     )
-    # val_ds = Dataset(
+    # val_ds = CacheDataset(
     #     data=val_files,
     #     transform=val_transforms,
+    #     cache_num=6,
+    #     cache_rate=1.0,
+    #     num_workers=4,
     # )
-    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    val_ds = Dataset(
+        data=val_files,
+        transform=val_transforms,
+    )
+    # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=4)
     return train_loader, val_loader
 
 
