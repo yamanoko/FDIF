@@ -28,7 +28,6 @@ from monai.transforms import (
     EnsureTyped,
     LoadImaged,
     Orientationd,
-    RandCropByPosNegLabeld,
     RandFlipd,
     RandRotate90d,
     RandShiftIntensityd,
@@ -49,7 +48,7 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
-    num_samples = 4
+    # num_samples = 4
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -82,16 +81,16 @@ def make_data_loder(
     train_transforms.extend(
         [
             EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=spatial_size,
-                pos=1,
-                neg=1,
-                num_samples=num_samples,
-                image_key="image",
-                image_threshold=0,
-            ),
+            # RandCropByPosNegLabeld(
+            #     keys=["image", "label"],
+            #     label_key="label",
+            #     spatial_size=spatial_size,
+            #     pos=1,
+            #     neg=1,
+            #     num_samples=num_samples,
+            #     image_key="image",
+            #     image_threshold=0,
+            # ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[0],
