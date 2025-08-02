@@ -552,8 +552,10 @@ def generate_and_save(
         torch.manual_seed(seed)
 
     os.makedirs(out_dir, exist_ok=True)
-    os.makedirs(os.path.join(out_dir, "image"), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, "label"), exist_ok=True)
+
+    # サブディレクトリのサイズ（100個ごと）
+    batch_size = 100
+
     ds = SDFSegmentationDataset(
         grid_size=grid_size,
         num_volumes=num_samples + num_val_samples,
@@ -569,13 +571,24 @@ def generate_and_save(
     for i, (x, y) in enumerate(loader):
         x = x[0].numpy() if hasattr(x[0], "numpy") else x[0]
         y = y[0].numpy() if hasattr(y[0], "numpy") else y[0]
+
+        # サブディレクトリ名を決定（batch_0000, batch_0001, ...）
+        batch_idx = i // batch_size
+        batch_dir = f"batch_{batch_idx:04d}"
+
+        # サブディレクトリを作成
+        image_batch_dir = os.path.join(out_dir, "image", batch_dir)
+        label_batch_dir = os.path.join(out_dir, "label", batch_dir)
+        os.makedirs(image_batch_dir, exist_ok=True)
+        os.makedirs(label_batch_dir, exist_ok=True)
+
         # Remove channel dimension for saving as 3D NIfTI images
         nii_x = nib.Nifti1Image(x, affine=np.eye(4))
         nii_y = nib.Nifti1Image(y, affine=np.eye(4))
         # Save the SDF volume and segmentation mask as separate .nii.gz files
-        image_file = os.path.join(out_dir, "image", f"sample_{i:05d}_x.nii.gz")
+        image_file = os.path.join(image_batch_dir, f"sample_{i:05d}_x.nii.gz")
         nib.save(nii_x, image_file)
-        label_file = os.path.join(out_dir, "label", f"sample_{i:05d}_y.nii.gz")
+        label_file = os.path.join(label_batch_dir, f"sample_{i:05d}_y.nii.gz")
         nib.save(nii_y, label_file)
         if i < num_samples:
             json_training_list.append(
@@ -594,7 +607,7 @@ def generate_and_save(
                 }
             )
         if i % 50 == 0:
-            print(f"Saved {i + 1}/{num_samples}")
+            print(f"Saved {i + 1}/{num_samples + num_val_samples} (batch {batch_idx})")
     # Save dataset metadata
     data_json["training"] = json_training_list
     data_json["validation"] = json_validation_list
