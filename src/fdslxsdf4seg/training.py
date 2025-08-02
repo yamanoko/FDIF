@@ -49,7 +49,7 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
-    num_samples = 2
+    num_samples = 4
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
