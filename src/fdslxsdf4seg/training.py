@@ -64,7 +64,7 @@ def make_data_loder(
             clip=True,
         ),
         CropForegroundd(
-            keys=["image", "label"], source_key="image", allow_smaller=True, margin=10
+            keys=["image", "label"], source_key="image", allow_smaller=True
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
     ]
@@ -77,7 +77,6 @@ def make_data_loder(
                 mode=("bilinear", "nearest"),
             )
         )
-        num_samples = 4
     train_transforms = base_transforms.copy()
     train_transforms.extend(
         [
