@@ -64,7 +64,7 @@ def make_data_loder(
             clip=True,
         ),
         CropForegroundd(
-            keys=["image", "label"], source_key="image", allow_smaller=True
+            keys=["image", "label"], source_key="image", allow_smaller=True, margin=10
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
     ]
