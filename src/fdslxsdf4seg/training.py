@@ -1,15 +1,17 @@
 import argparse
-import gc
 import json
 import os
-import time
 
 # Import visualization functions from visualize_training_metrics.py
+import time
+
 import matplotlib.pyplot as plt
 import numpy as np
-import psutil
 import torch
 from monai.data import (
+    CacheDataset,
+    Dataset,
+    ThreadDataLoader,
     decollate_batch,
     load_decathlon_datalist,
 )
@@ -26,7 +28,7 @@ from monai.transforms import (
     EnsureTyped,
     LoadImaged,
     Orientationd,
-    # RandCropByPosNegLabeld,
+    RandCropByPosNegLabeld,
     RandFlipd,
     RandRotate90d,
     RandShiftIntensityd,
@@ -47,12 +49,7 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
-    print("[TIMING] Starting data loader creation...")
-    start_time = time.time()
-
-    # Reduce num_samples to 1 to avoid multiple crops per image which can cause confusion in timing
-    # num_samples=4 means 4 random crops per image, effectively making batch size 4x larger
-    # num_samples = 1  # Changed from 4 to 1 for clearer timing and memory efficiency
+    num_samples = 4
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,12 +64,8 @@ def make_data_loder(
             b_max=1.0,
             clip=True,
         ),
-        # Optimize CropForegroundd for speed
         CropForegroundd(
-            keys=["image", "label"],
-            source_key="image",
-            allow_smaller=True,
-            margin=10,  # Add margin to reduce computational overhead
+            keys=["image", "label"], source_key="image", allow_smaller=True
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
     ]
@@ -86,49 +79,43 @@ def make_data_loder(
             )
         )
     train_transforms = base_transforms.copy()
-
-    # Simplified transforms for faster data loading
-    # Remove some heavy augmentations that might be causing slowdown
     train_transforms.extend(
         [
             EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
-            # Simplified RandCropByPosNegLabeld - reduce computational complexity
-            # RandCropByPosNegLabeld(
-            #     keys=["image", "label"],
-            #     label_key="label",
-            #     spatial_size=spatial_size,
-            #     pos=1,
-            #     neg=1,
-            #     num_samples=num_samples,
-            #     image_key="image",
-            #     image_threshold=0,
-            #     allow_smaller=True,  # Allow smaller crops to speed up processing
-            # ),
-            # Reduce augmentation probabilities to speed up processing
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=spatial_size,
+                pos=1,
+                neg=1,
+                num_samples=num_samples,
+                image_key="image",
+                image_threshold=0,
+            ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[0],
-                prob=0.05,  # Reduced from 0.10
+                prob=0.10,
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[1],
-                prob=0.05,  # Reduced from 0.10
+                prob=0.10,
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[2],
-                prob=0.05,  # Reduced from 0.10
+                prob=0.10,
             ),
             RandRotate90d(
                 keys=["image", "label"],
-                prob=0.05,  # Reduced from 0.10
+                prob=0.10,
                 max_k=3,
             ),
             RandShiftIntensityd(
                 keys=["image"],
                 offsets=0.10,
-                prob=0.25,  # Reduced from 0.50
+                prob=0.50,
             ),
         ]
     )
@@ -143,249 +130,35 @@ def make_data_loder(
 
     datalist = load_decathlon_datalist(data_json_path, True, "training")
     val_files = load_decathlon_datalist(data_json_path, True, "validation")
-
-    print(f"[TIMING] Loading training dataset with {len(datalist)} samples...")
-    train_ds_start = time.time()
-
-    # Use CacheDataset with optimized settings for large datasets
-    from monai.data import CacheDataset
-
-    # Calculate optimal cache settings based on dataset size
-    if len(datalist) > 1000:
-        # For large datasets, cache a smaller portion but use more workers
-        cache_rate = 0.2  # Cache 20% of data
-        cache_num = min(200, int(len(datalist) * cache_rate))  # Max 200 samples
-        # num_workers = 8
-        print(
-            f"[INFO] Large dataset detected. Using cache_rate={cache_rate}, cache_num={cache_num}"
-        )
-    else:
-        # For small datasets, cache everything
-        cache_rate = 1.0
-        cache_num = len(datalist)
-        # num_workers = 4
-        print(f"[INFO] Small dataset detected. Caching all {cache_num} samples")
-
     # train_ds = CacheDataset(
     #     data=datalist,
     #     transform=train_transforms,
-    #     cache_num=cache_num,
-    #     cache_rate=cache_rate,
-    #     num_workers=num_workers,
+    #     cache_num=24,
+    #     cache_rate=1.0,
+    #     num_workers=8,
     # )
-
-    from monai.data import Dataset
-
     train_ds = Dataset(
         data=datalist,
         transform=train_transforms,
     )
-    train_ds_time = time.time() - train_ds_start
-    print(f"[TIMING] Training dataset created in {train_ds_time:.2f} seconds")
-    # train_ds = Dataset(
-    #     data=datalist,
-    #     transform=train_transforms,
-    # )
-    from monai.data import DataLoader
-
-    # Test both DataLoader types to compare performance
-    print("[DEBUG] Using regular DataLoader for comparison...")
-
-    # Force garbage collection before creating DataLoader
-    gc.collect()
-
-    train_loader = DataLoader(
+    train_loader = ThreadDataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,  # Start with 0 workers
-        pin_memory=False,  # Disable pin_memory to reduce overhead
+        num_workers=0,
     )
-
-    # Alternative: Uncomment to test ThreadDataLoader
-    # from monai.data import ThreadDataLoader
-    # train_loader = ThreadDataLoader(
-    #     train_ds,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=0,  # Use 0 for ThreadDataLoader
-    # )
-
-    # train_loader = DataLoader(
-    #     train_ds,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=0,
-    # )
-    # train_loader = DataLoader(
-    #     train_ds,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=0,
-    # )
-    print(f"[TIMING] Loading validation dataset with {len(val_files)} samples...")
-    val_ds_start = time.time()
-
-    # For validation, always use CacheDataset as it's typically smaller
     val_ds = CacheDataset(
         data=val_files,
         transform=val_transforms,
-        cache_num=len(val_files),  # Cache all validation data
+        cache_num=6,
         cache_rate=1.0,
         num_workers=4,
     )
-
-    val_ds_time = time.time() - val_ds_start
-    print(f"[TIMING] Validation dataset created in {val_ds_time:.2f} seconds")
     # val_ds = Dataset(
     #     data=val_files,
     #     transform=val_transforms,
     # )
-    # Use regular DataLoader for validation as well
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-    # val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-    # val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-
-    end_time = time.time()
-    print(
-        f"[TIMING] Data loader creation completed in {end_time - start_time:.2f} seconds"
-    )
-
-    # DEBUG: Test data loading speed
-    print("[DEBUG] Testing data loader speed...")
-    print(f"[DEBUG] Dataset size: {len(train_ds)}")
-    print(f"[DEBUG] DataLoader length: {len(train_loader)}")
-    print(f"[DEBUG] Batch size: {batch_size}")
-    print(f"[DEBUG] Expected batches: {len(train_ds) // batch_size}")
-
-    # Add detailed debugging for dataset access patterns
-    print(f"[DEBUG] Dataset type: {type(train_ds).__name__}")
-    print(
-        f"[DEBUG] Transform pipeline length: {len(train_transforms.transforms) if hasattr(train_transforms, 'transforms') else 'Unknown'}"
-    )
-
-    # Print detailed transform pipeline
-    print("[DEBUG] Transform pipeline details:")
-    if hasattr(train_transforms, "transforms"):
-        for idx, transform in enumerate(train_transforms.transforms):
-            print(f"[DEBUG]   {idx + 1}. {type(transform).__name__}")
-
-    # Test individual sample access time and file system analysis
-    print("[DEBUG] Testing individual sample access times...")
-    import os as os_module  # Use different name to avoid conflict
-    import random
-
-    sample_indices = random.sample(range(len(train_ds)), min(5, len(train_ds)))
-
-    # Also test file path analysis
-    print("[DEBUG] Analyzing file access patterns...")
-    data_files = datalist
-    if len(data_files) > 0:
-        first_file_path = data_files[0].get("image", "No image key")
-        print(f"[DEBUG] Sample file path: {first_file_path}")
-        if isinstance(first_file_path, str):
-            if os_module.path.exists(first_file_path):
-                file_size = os_module.path.getsize(first_file_path) / 1024 / 1024  # MB
-                print(f"[DEBUG] Sample file size: {file_size:.1f} MB")
-
-    # Test transform timing on individual sample
-    if len(sample_indices) > 0:
-        print("[DEBUG] Testing transform timing breakdown...")
-        test_idx = sample_indices[0]
-        raw_data = datalist[test_idx]
-        print(f"[DEBUG] Raw data keys: {list(raw_data.keys())}")
-
-        # Time each transform step
-        data = raw_data.copy()
-        total_transform_time = 0
-        if hasattr(train_transforms, "transforms"):
-            for idx, transform in enumerate(train_transforms.transforms):
-                transform_start = time.time()
-                data = transform(data)
-                transform_time = time.time() - transform_start
-                total_transform_time += transform_time
-                print(
-                    f"[DEBUG]   Transform {idx + 1} ({type(transform).__name__}): {transform_time:.3f}s"
-                )
-        print(f"[DEBUG] Total transform time: {total_transform_time:.3f}s")
-
-    for i, idx in enumerate(sample_indices):
-        sample_start = time.time()
-        sample = train_ds[idx]
-        sample_time = time.time() - sample_start
-        print(f"[DEBUG] Sample {i + 1} (index {idx}): {sample_time:.3f}s")
-        if i == 0:  # Print details for first sample
-            print(f"[DEBUG] Sample keys: {list(sample.keys())}")
-            if "image" in sample:
-                print(f"[DEBUG] Image shape: {sample['image'].shape}")
-            if "label" in sample:
-                print(f"[DEBUG] Label shape: {sample['label'].shape}")
-
-    test_start = time.time()
-    test_loader_iter = iter(train_loader)
-
-    # Force garbage collection before testing
-    gc.collect()
-
-    try:
-        # Try to get first few batches to understand the pattern
-        for i in range(min(3, len(train_loader))):
-            batch_start = time.time()
-
-            # Monitor memory before batch loading
-            process = psutil.Process()
-            memory_before = process.memory_info().rss / 1024 / 1024  # MB
-
-            batch = next(test_loader_iter)
-            batch_time = time.time() - batch_start
-
-            # Monitor memory after batch loading
-            memory_after = process.memory_info().rss / 1024 / 1024  # MB
-            memory_increase = memory_after - memory_before
-
-            batch_size_actual = (
-                batch["image"].shape[0] if "image" in batch else "unknown"
-            )
-            print(f"[DEBUG] Test batch {i + 1} loading time: {batch_time:.2f}s")
-            print(f"[DEBUG] Batch size: {batch_size_actual}")
-            print(
-                f"[DEBUG] Memory before: {memory_before:.1f} MB, after: {memory_after:.1f} MB (increase: {memory_increase:.1f} MB)"
-            )
-
-            # Additional debugging for DataLoader internals
-            print(f"[DEBUG] DataLoader num_workers: {train_loader.num_workers}")
-            print(f"[DEBUG] DataLoader pin_memory: {train_loader.pin_memory}")
-
-            # Test if the slowdown is due to batch collection vs individual samples
-            if i == 0:  # Only for first batch
-                print("[DEBUG] Testing individual sample timing within batch...")
-                # Get the same indices that would be in this batch
-                batch_start_idx = i * batch_size
-                batch_end_idx = min(batch_start_idx + batch_size, len(train_ds))
-                individual_times = []
-
-                for sample_idx in range(batch_start_idx, batch_end_idx):
-                    single_sample_start = time.time()
-                    _ = train_ds[sample_idx]  # Access individual sample
-                    single_sample_time = time.time() - single_sample_start
-                    individual_times.append(single_sample_time)
-
-                print(
-                    f"[DEBUG] Individual sample times: {[f'{t:.3f}s' for t in individual_times]}"
-                )
-                print(f"[DEBUG] Sum of individual times: {sum(individual_times):.3f}s")
-                print(f"[DEBUG] Actual batch time from DataLoader: {batch_time:.3f}s")
-                print(f"[DEBUG] Overhead: {batch_time - sum(individual_times):.3f}s")
-
-            # Force garbage collection between batches
-            del batch
-            gc.collect()
-
-    except StopIteration:
-        print("[DEBUG] End of test data loader")
-    test_end = time.time()
-    print(f"[DEBUG] Total test loading time: {test_end - test_start:.2f}s")
-
+    val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
 
 
@@ -397,9 +170,6 @@ def create_model(
     pretrained_path=None,
     pretraining_out_channel=14,
 ):
-    print(f"[TIMING] Starting model creation for {model_name}...")
-    start_time = time.time()
-
     if model_name == "vnet":
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
@@ -456,17 +226,10 @@ def create_model(
             print(f"Model {model_name} loaded from {pretrained_path}")
     else:
         raise ValueError(f"Unknown model name: {model_name}")
-
-    end_time = time.time()
-    print(f"[TIMING] Model creation completed in {end_time - start_time:.2f} seconds")
-
     return model
 
 
 def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
-    print(f"[TIMING] Starting validation at step {global_step}...")
-    validation_start = time.time()
-
     model.eval()
     with torch.no_grad():
         for batch in epoch_iterator_val:
@@ -506,12 +269,6 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
                     f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
                 )
 
-    validation_end = time.time()
-    validation_time = validation_end - validation_start
-    print(
-        f"[TIMING] Validation completed in {validation_time:.2f} seconds (Dice: {mean_dice_val:.4f})"
-    )
-
     return mean_dice_val, raw_dice_score
 
 
@@ -524,132 +281,27 @@ def train(
     out_channel=14,
     is_real_data=True,
 ):
-    print(f"[TIMING] Starting training epoch at step {global_step}...")
-    epoch_start_time = time.time()
-
     model.train()
     epoch_loss = 0
     step = 0
-
-    # Track batch processing time
-    batch_times = []
-
     epoch_iterator = tqdm(
         train_loader, desc="Training (X / X Steps) (loss=X.X)", dynamic_ncols=True
     )
-
-    # Add timing for data loading
-    data_loading_times = []
-    data_loading_start = time.time()  # Initialize for first batch
-
     for step, batch in enumerate(epoch_iterator):
-        # Memory monitoring
-        process = psutil.Process()
-        memory_before = process.memory_info().rss / 1024 / 1024  # MB
-
-        # Measure time from start of for loop to getting batch
-        batch_acquisition_time = time.time() - data_loading_start
-
-        # Measure time to get the next batch (this is where the bottleneck might be)
-        if step > 0:  # Skip first iteration as it might include initialization
-            data_loading_end = time.time()
-            data_loading_time = data_loading_end - data_loading_start
-            data_loading_times.append(data_loading_time)
-            if step <= 5:  # Print for first few batches
-                print(f"[DEBUG] Time to load batch {step}: {data_loading_time:.2f}s")
-                print(f"[DEBUG] Batch acquisition time: {batch_acquisition_time:.2f}s")
-                print(f"[DEBUG] Memory before batch processing: {memory_before:.1f} MB")
-
-        iteration_start_time = time.time()  # Track the full iteration time
-        batch_start_time = time.time()
         step += 1
-
-        # Print batch info for debugging
-        if step <= 3:  # Print for first 3 batches to debug
-            print(f"[DEBUG] Batch {step}: Keys in batch: {list(batch.keys())}")
-            if "image" in batch:
-                print(f"[DEBUG] Batch {step}: Image shape: {batch['image'].shape}")
-                print(
-                    f"[DEBUG] Batch {step}: Image memory size: {batch['image'].element_size() * batch['image'].nelement() / 1024 / 1024:.1f} MB"
-                )
-            if "label" in batch:
-                print(f"[DEBUG] Batch {step}: Label shape: {batch['label'].shape}")
-
-            # Additional memory info after batch is loaded
-            memory_after = process.memory_info().rss / 1024 / 1024  # MB
-            memory_increase = memory_after - memory_before
-            print(
-                f"[DEBUG] Memory after batch loaded: {memory_after:.1f} MB (increase: {memory_increase:.1f} MB)"
-            )
-
-            # GPU memory if available
-            if torch.cuda.is_available():
-                gpu_allocated = torch.cuda.memory_allocated() / 1024 / 1024  # MB
-                gpu_cached = torch.cuda.memory_reserved() / 1024 / 1024  # MB
-                print(
-                    f"[DEBUG] GPU Memory - Allocated: {gpu_allocated:.1f} MB, Reserved: {gpu_cached:.1f} MB"
-                )
-                print(
-                    f"[DEBUG] Batch {step}: Label memory size: {batch['label'].element_size() * batch['label'].nelement() / 1024 / 1024:.1f} MB"
-                )
-
-            # Memory usage monitoring
-            process = psutil.Process()
-            memory_info = process.memory_info()
-            print(
-                f"[DEBUG] Batch {step}: CPU Memory usage: {memory_info.rss / 1024 / 1024:.1f} MB"
-            )
-            if torch.cuda.is_available():
-                print(
-                    f"[DEBUG] Batch {step}: GPU Memory allocated: {torch.cuda.memory_allocated() / 1024 / 1024:.1f} MB"
-                )
-                print(
-                    f"[DEBUG] Batch {step}: GPU Memory cached: {torch.cuda.memory_reserved() / 1024 / 1024:.1f} MB"
-                )
-
-        # Data transfer timing
-        data_transfer_start = time.time()
         x, y = (batch["image"].cuda(), batch["label"].cuda())
-        data_transfer_time = time.time() - data_transfer_start
-
-        # Forward pass timing
-        forward_start = time.time()
         with torch.autocast("cuda"):
             logit_map = model(x)
             loss = loss_function(logit_map, y)
-        forward_time = time.time() - forward_start
-
-        # Backward pass timing
-        backward_start = time.time()
         scaler.scale(loss).backward()
         epoch_loss += loss.item()
         scaler.unscale_(optimizer)
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
-        backward_time = time.time() - backward_start
-
-        # Track batch processing time
-        batch_end_time = time.time()
-        batch_time = batch_end_time - batch_start_time
-        batch_times.append(batch_time)
-
-        # Print detailed timing every 10 steps
-        if step % 10 == 0:
-            print(
-                f"[DETAILED TIMING] Step {step}: Total={batch_time:.2f}s, Data={data_transfer_time:.3f}s, Forward={forward_time:.2f}s, Backward={backward_time:.2f}s, Batch shape: {x.shape}"
-            )
-
-        # Calculate full iteration time (from start of iteration to end)
-        iteration_end_time = time.time()
-        full_iteration_time = iteration_end_time - iteration_start_time
-
         epoch_iterator.set_description(  # noqa: B038
-            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f}) (batch_time={batch_time:.2f}s) (iter_time={full_iteration_time:.2f}s) (batch_size={x.shape[0]})"
+            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f})"
         )
-
-        # Set timer for next data loading measurement
-        data_loading_start = time.time()
         if (
             global_step % eval_num == 0 and global_step != 0
         ) or global_step == max_iterations:
@@ -723,31 +375,6 @@ def train(
                     )
                 )
         global_step += 1
-
-    # Print epoch timing summary
-    epoch_end_time = time.time()
-    total_epoch_time = epoch_end_time - epoch_start_time
-    if batch_times:
-        avg_batch_time = sum(batch_times) / len(batch_times)
-        min_batch_time = min(batch_times)
-        max_batch_time = max(batch_times)
-        print(f"[TIMING] Epoch completed in {total_epoch_time:.2f} seconds")
-        print(
-            f"[TIMING] Processed {len(batch_times)} batches - Avg: {avg_batch_time:.2f}s, Min: {min_batch_time:.2f}s, Max: {max_batch_time:.2f}s"
-        )
-
-        # Print data loading timing statistics
-        if data_loading_times:
-            avg_data_loading = sum(data_loading_times) / len(data_loading_times)
-            min_data_loading = min(data_loading_times)
-            max_data_loading = max(data_loading_times)
-            print(
-                f"[TIMING] Data loading times - Avg: {avg_data_loading:.2f}s, Min: {min_data_loading:.2f}s, Max: {max_data_loading:.2f}s"
-            )
-            print(
-                f"[TIMING] Total data loading time: {sum(data_loading_times):.2f}s ({sum(data_loading_times) / total_epoch_time * 100:.1f}% of epoch time)"
-            )
-
     return global_step, dice_val_best, global_step_best
 
 
@@ -755,9 +382,6 @@ def perform_inference_and_visualize(
     model, val_loader, out_dir, device, grid_size, out_channel
 ):
     """Perform inference on validation data and create visualizations."""
-    print("[TIMING] Starting inference and visualization...")
-    inference_start = time.time()
-
     model.eval()
 
     # Get one validation sample
@@ -793,11 +417,6 @@ def perform_inference_and_visualize(
         create_slice_visualization(
             image, label, prediction, out_dir, mean_dice, out_channel
         )
-
-    inference_end = time.time()
-    print(
-        f"[TIMING] Inference and visualization completed in {inference_end - inference_start:.2f} seconds"
-    )
 
 
 def create_slice_visualization(
