@@ -49,7 +49,7 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
-    num_samples = 1
+    num_samples = 2
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -95,27 +95,27 @@ def make_data_loder(
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[0],
-                prob=0.05,
+                prob=0.1,
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[1],
-                prob=0.05,
+                prob=0.1,
             ),
             RandFlipd(
                 keys=["image", "label"],
                 spatial_axis=[2],
-                prob=0.05,
+                prob=0.1,
             ),
             RandRotate90d(
                 keys=["image", "label"],
-                prob=0.05,
+                prob=0.1,
                 max_k=3,
             ),
             RandShiftIntensityd(
                 keys=["image"],
                 offsets=0.10,
-                prob=0.25,
+                prob=0.5,
             ),
         ]
     )
