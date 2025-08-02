@@ -58,9 +58,7 @@ def make_data_loder(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     base_transforms = [
-        LoadImaged(
-            keys=["image", "label"], ensure_channel_first=True, reader="ITKReader"
-        ),
+        LoadImaged(keys=["image", "label"], ensure_channel_first=True),
         ScaleIntensityRanged(
             keys=["image"],
             a_min=-175,
