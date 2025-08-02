@@ -49,8 +49,7 @@ def make_data_loder(
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
 ):
-    num_samples = 4
-
+    num_samples = 1
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -78,6 +77,7 @@ def make_data_loder(
                 mode=("bilinear", "nearest"),
             )
         )
+        num_samples = 4
     train_transforms = base_transforms.copy()
     train_transforms.extend(
         [
