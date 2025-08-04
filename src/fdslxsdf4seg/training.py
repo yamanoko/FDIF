@@ -213,16 +213,28 @@ def create_model(
                 feature_size=feature_size or 16,
             )
     elif model_name == "swin_unetr":
-        model = SwinUNETR(
-            in_channels=1,
-            out_channels=out_channel,
-            spatial_dims=3,
-            feature_size=feature_size or 48,
-        )
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
-            model.load_from(weights=weights)
+            model = SwinUNETR(
+                in_channels=1,
+                out_channels=pretraining_out_channel,
+                spatial_dims=3,
+                feature_size=feature_size or 48,
+            )
+            model.load_state_dict(weights)
+            model.out = UnetOutBlock(
+                spatial_dims=3,
+                in_channels=feature_size or 48,
+                out_channels=out_channel,
+            )
             print(f"Model {model_name} loaded from {pretrained_path}")
+        else:
+            model = SwinUNETR(
+                in_channels=1,
+                out_channels=out_channel,
+                spatial_dims=3,
+                feature_size=feature_size or 48,
+            )
     else:
         raise ValueError(f"Unknown model name: {model_name}")
     return model
