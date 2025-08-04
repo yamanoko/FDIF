@@ -603,6 +603,12 @@ if __name__ == "__main__":
     p.add_argument(
         "--max_iterations", type=int, default=30000, help="Maximum training iterations"
     )
+    p.add_argument(
+        "--learning_rate",
+        type=float,
+        default=1e-4,
+        help="Learning rate for the optimizer",
+    )
     p.add_argument("--out_dir", type=str, help="Output directory")
     args = p.parse_args()
     pretraining_state = "fine_tuning"
@@ -642,13 +648,16 @@ if __name__ == "__main__":
         pretraining_out_channel=args.pretraining_out_channel,
     )
     print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
+    print(f"Using learning rate: {args.learning_rate}")
     if args.pretrained_model:
         print(f"Loading pretrained model from {args.pretrained_model}")
     else:
         print("Training from scratch, no pretrained model loaded.")
     model = model.to(device)
     loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
-    optimizer = torch.optim.AdamW(model.parameters(), 1e-4, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), args.learning_rate, weight_decay=1e-5
+    )
     scaler = torch.GradScaler("cuda")
     max_iterations = args.max_iterations
     eval_num = 500
@@ -663,6 +672,7 @@ if __name__ == "__main__":
     epoch_loss_values = []
     metric_values = []
     step_values = []  # Track steps for plotting
+    print(f"Starting training with learning rate: {args.learning_rate}")
     print("Starting training...")
     time_start = time.time()
     while global_step < max_iterations:
