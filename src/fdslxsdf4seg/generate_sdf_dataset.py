@@ -590,19 +590,24 @@ def generate_and_save(
         nib.save(nii_x, image_file)
         label_file = os.path.join(label_batch_dir, f"sample_{i:05d}_y.nii.gz")
         nib.save(nii_y, label_file)
+
+        # Calculate relative paths from out_dir
+        image_rel_path = os.path.relpath(image_file, out_dir)
+        label_rel_path = os.path.relpath(label_file, out_dir)
+
         if i < num_samples:
             json_training_list.append(
                 {
-                    "image": os.path.abspath(image_file),
-                    "label": os.path.abspath(label_file),
+                    "image": image_rel_path,
+                    "label": label_rel_path,
                     "id": f"sample_{i:05d}",
                 }
             )
         else:
             json_validation_list.append(
                 {
-                    "image": os.path.abspath(image_file),
-                    "label": os.path.abspath(label_file),
+                    "image": image_rel_path,
+                    "label": label_rel_path,
                     "id": f"sample_{i:05d}",
                 }
             )
