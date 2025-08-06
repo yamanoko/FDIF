@@ -284,6 +284,64 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
     return mean_dice_val, raw_dice_score
 
 
+def save_checkpoint(
+    checkpoint_path,
+    model,
+    optimizer,
+    scheduler,
+    scaler,
+    global_step,
+    dice_val_best,
+    global_step_best,
+    epoch_loss_values,
+    metric_values,
+):
+    """Save training checkpoint."""
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        "global_step": global_step,
+        "dice_val_best": dice_val_best,
+        "global_step_best": global_step_best,
+        "epoch_loss_values": epoch_loss_values,
+        "metric_values": metric_values,
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Checkpoint saved at step {global_step}: {checkpoint_path}")
+
+
+def load_checkpoint(checkpoint_path, model, optimizer, scheduler, scaler):
+    """Load training checkpoint and return training state."""
+    if not os.path.exists(checkpoint_path):
+        print(f"No checkpoint found at {checkpoint_path}")
+        return 0, 0.0, 0, [], []
+
+    print(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    scaler.load_state_dict(checkpoint["scaler_state_dict"])
+
+    global_step = checkpoint["global_step"]
+    dice_val_best = checkpoint["dice_val_best"]
+    global_step_best = checkpoint["global_step_best"]
+    epoch_loss_values = checkpoint["epoch_loss_values"]
+    metric_values = checkpoint["metric_values"]
+
+    print(f"Resumed training from step {global_step}, best dice: {dice_val_best:.4f}")
+    return (
+        global_step,
+        dice_val_best,
+        global_step_best,
+        epoch_loss_values,
+        metric_values,
+    )
+
+
 def train(
     global_step,
     train_loader,
@@ -332,32 +390,27 @@ def train(
             with open(training_log_path, "a") as f:
                 f.write(f"Step {global_step}: Training Loss: {epoch_loss:.6f}\n")
 
+            # Save checkpoint after each evaluation (overwrite previous)
+            checkpoint_path = os.path.join(out_dir, "training_checkpoint.pth")
+            save_checkpoint(
+                checkpoint_path,
+                model,
+                optimizer,
+                scheduler,
+                scaler,
+                global_step,
+                dice_val_best,
+                global_step_best,
+                epoch_loss_values,
+                metric_values,
+            )
+
             plot_metrics(
                 epoch_loss_values,
                 metric_values,
                 list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
                 out_dir,
             )
-
-            # Save model based on data type and validation performance
-            if not is_real_data:
-                # For synthetic data, save model every validation
-                model_path = os.path.join(out_dir, f"model_step_{global_step}.pth")
-                torch.save(model.state_dict(), model_path)
-                print(f"Model saved at step {global_step}: {model_path}")
-
-                # Log model save event
-                with open(training_log_path, "a") as f:
-                    f.write(
-                        f"*** MODEL SAVED at Step {global_step} (Synthetic Data) ***\n"
-                    )
-                    f.write(f"Current Dice Score: {dice_val:.6f}\n")
-                    f.write("Per-class Dice Scores:\n")
-                    for class_idx in range(out_channel - 1):
-                        f.write(
-                            f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
-                        )
-                    f.write("=" * 50 + "\n")
 
             if dice_val > dice_val_best:
                 dice_val_best = dice_val
@@ -624,6 +677,11 @@ if __name__ == "__main__":
         help="Learning rate for the optimizer",
     )
     p.add_argument("--out_dir", type=str, help="Output directory")
+    p.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        help="Path to checkpoint file to resume training from",
+    )
     args = p.parse_args()
     pretraining_state = "fine_tuning"
     if not args.pretrained_model:
@@ -691,6 +749,26 @@ if __name__ == "__main__":
     epoch_loss_values = []
     metric_values = []
     step_values = []  # Track steps for plotting
+
+    # Load checkpoint if specified
+    if args.resume_from_checkpoint:
+        (
+            global_step,
+            dice_val_best,
+            global_step_best,
+            epoch_loss_values,
+            metric_values,
+        ) = load_checkpoint(
+            args.resume_from_checkpoint, model, optimizer, scheduler, scaler
+        )
+        with open(training_log_path, "a") as f:
+            f.write(
+                f"Resumed training from checkpoint: {args.resume_from_checkpoint}\n"
+            )
+            f.write(
+                f"Resuming from step {global_step}, best dice: {dice_val_best:.4f}\n"
+            )
+
     print(f"Starting training with learning rate: {args.learning_rate}")
     print("Starting training...")
     time_start = time.time()
@@ -737,6 +815,7 @@ if __name__ == "__main__":
         f.write(
             f"Training completed in {time_end - time_start:.2f} seconds. Best Dice: {dice_val_best:.4f} at step {global_step_best}.\n"
         )
+        f.write("Training checkpoint saved to: training_checkpoint.pth\n")
         f.write("Training metrics saved to:\n")
         f.write("  - training_loss.npy\n")
         f.write("  - validation_dice.npy\n")
