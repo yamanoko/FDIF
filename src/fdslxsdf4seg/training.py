@@ -37,6 +37,7 @@ from monai.transforms import (
 )
 from tqdm import tqdm
 
+from fdslxsdf4seg.lr_scheduler import LinearWarmupCosineAnnealingLR
 from fdslxsdf4seg.visualize_training_metrics import (
     plot_metrics,
     print_summary,
@@ -309,6 +310,7 @@ def train(
         scaler.unscale_(optimizer)
         scaler.step(optimizer)
         scaler.update()
+        scheduler.step()
         optimizer.zero_grad()
         epoch_iterator.set_description(  # noqa: B038
             f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f})"
@@ -671,6 +673,11 @@ if __name__ == "__main__":
         model.parameters(), args.learning_rate, weight_decay=1e-5
     )
     scaler = torch.GradScaler("cuda")
+    scheduler = LinearWarmupCosineAnnealingLR(
+        optimizer,
+        warmup_steps=500,
+        max_steps=args.max_iterations,
+    )
     max_iterations = args.max_iterations
     eval_num = 500
     post_label = AsDiscrete(to_onehot=args.out_channel)
