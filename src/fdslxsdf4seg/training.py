@@ -130,17 +130,19 @@ def make_data_loder(
 
     datalist = load_decathlon_datalist(data_json_path, True, "training")
     val_files = load_decathlon_datalist(data_json_path, True, "validation")
-    # train_ds = CacheDataset(
-    #     data=datalist,
-    #     transform=train_transforms,
-    #     cache_num=24,
-    #     cache_rate=1.0,
-    #     num_workers=8,
-    # )
-    train_ds = Dataset(
-        data=datalist,
-        transform=train_transforms,
-    )
+    if real_data:
+        train_ds = CacheDataset(
+            data=datalist,
+            transform=train_transforms,
+            cache_num=24,
+            cache_rate=1.0,
+            num_workers=8,
+        )
+    else:
+        train_ds = Dataset(
+            data=datalist,
+            transform=train_transforms,
+        )
     train_loader = ThreadDataLoader(
         train_ds,
         batch_size=batch_size,
