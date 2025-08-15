@@ -243,8 +243,29 @@ def create_model(
     return model
 
 
+class AverageMeter:
+    """Computes and stores the average and current value."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = np.where(self.count > 0, self.sum / self.count, self.sum)
+
+
 def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
     model.eval()
+    run_acc = AverageMeter()
+    raw_dice_scores = list()
     with torch.no_grad():
         for batch in epoch_iterator_val:
             val_inputs, val_labels = (batch["image"].cuda(), batch["label"].cuda())
@@ -258,19 +279,19 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             val_output_convert = [
                 post_pred(val_pred_tensor) for val_pred_tensor in val_outputs_list
             ]
+            dice_metric.reset()
             raw_dice_score = dice_metric(
                 y_pred=val_output_convert, y=val_labels_convert
             )
-            raw_dice_score = raw_dice_score[0]
+            raw_dice_scores.append(raw_dice_score[0])
+            dice_scores, not_nans = dice_metric.aggregate()
+            run_acc.update(dice_scores.cpu().numpy(), not_nans.cpu().numpy())
             epoch_iterator_val.set_description(
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
 
-        # Get per-class dice scores
-        dice_scores = dice_metric.aggregate()
-        mean_dice_val = torch.mean(dice_scores).item()
-        dice_metric.reset()
-
+        mean_dice_val = np.mean(run_acc.avg)
+        class_dice_score = torch.stack(raw_dice_scores, dim=0).mean(dim=0).numpy()
         # Log evaluation results
         with open(training_log_path, "a") as f:
             f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
@@ -280,10 +301,10 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             # This is why we loop from 0 to out_channel - 1
             for class_idx in range(out_channel - 1):
                 f.write(
-                    f"Step {global_step}: Class {class_idx} Dice Score: {raw_dice_score[class_idx].item():.6f}\n"
+                    f"Step {global_step}: Class {class_idx} Dice Score: {class_dice_score[class_idx].item():.6f}\n"
                 )
 
-    return mean_dice_val, raw_dice_score
+    return mean_dice_val, class_dice_score
 
 
 def save_checkpoint(
@@ -743,7 +764,7 @@ if __name__ == "__main__":
     post_label = AsDiscrete(to_onehot=args.out_channel)
     post_pred = AsDiscrete(argmax=True, to_onehot=args.out_channel)
     dice_metric = DiceMetric(
-        include_background=False, reduction="mean", get_not_nans=False
+        include_background=False, reduction="mean", get_not_nans=True
     )
     global_step = 0
     dice_val_best = 0.0
