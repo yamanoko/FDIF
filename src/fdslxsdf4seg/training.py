@@ -290,7 +290,7 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
 
-        mean_dice_val = np.mean(run_acc.avg)
+        mean_dice_val = np.mean(run_acc.avg).item()
         class_dice_score = torch.stack(raw_dice_scores, dim=0).mean(dim=0).cpu().numpy()
         # Log evaluation results
         with open(training_log_path, "a") as f:
