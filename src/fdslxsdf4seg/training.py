@@ -427,6 +427,11 @@ def train(
                 metric_values,
             )
 
+            # Save latest model after each validation
+            last_model_path = os.path.join(out_dir, "last_model.pth")
+            torch.save(model.state_dict(), last_model_path)
+            print(f"Latest model saved at step {global_step}: {last_model_path}")
+
             plot_metrics(
                 epoch_loss_values,
                 metric_values,
@@ -837,6 +842,9 @@ if __name__ == "__main__":
         f.write(
             f"Training completed in {time_end - time_start:.2f} seconds. Best Dice: {dice_val_best:.4f} at step {global_step_best}.\n"
         )
+        f.write("Model files saved:\n")
+        f.write("  - best_metric_model.pth (best performing model)\n")
+        f.write("  - last_model.pth (latest model from final validation)\n")
         f.write("Training checkpoint saved to: training_checkpoint.pth\n")
         f.write("Training metrics saved to:\n")
         f.write("  - training_loss.npy\n")
