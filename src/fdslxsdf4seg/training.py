@@ -68,16 +68,13 @@ def make_data_loder(
             keys=["image", "label"], source_key="image", allow_smaller=True
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        Spacingd(
+            keys=["image", "label"],
+            pixdim=(1.5, 1.5, 2.0),
+            mode=("bilinear", "nearest"),
+        ),
     ]
 
-    if real_data:
-        base_transforms.append(
-            Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.5, 1.5, 2.0),
-                mode=("bilinear", "nearest"),
-            )
-        )
     train_transforms = base_transforms.copy()
     train_transforms.extend(
         [
@@ -149,17 +146,19 @@ def make_data_loder(
         shuffle=True,
         num_workers=0,
     )
-    val_ds = CacheDataset(
-        data=val_files,
-        transform=val_transforms,
-        cache_num=6,
-        cache_rate=1.0,
-        num_workers=4,
-    )
-    # val_ds = Dataset(
-    #     data=val_files,
-    #     transform=val_transforms,
-    # )
+    if real_data:
+        val_ds = CacheDataset(
+            data=val_files,
+            transform=val_transforms,
+            cache_num=6,
+            cache_rate=1.0,
+            num_workers=4,
+        )
+    else:
+        val_ds = Dataset(
+            data=val_files,
+            transform=val_transforms,
+        )
     val_loader = ThreadDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
     return train_loader, val_loader
 
