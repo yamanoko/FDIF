@@ -135,9 +135,9 @@ def make_data_loder(
         train_ds = CacheDataset(
             data=datalist,
             transform=train_transforms,
-            cache_num=24,
+            cache_num=12,  # Reduced from 24 to 12
             cache_rate=1.0,
-            num_workers=8,
+            num_workers=4,  # Reduced from 8 to 4
         )
     else:
         train_ds = Dataset(
@@ -154,9 +154,9 @@ def make_data_loder(
         val_ds = CacheDataset(
             data=val_files,
             transform=val_transforms,
-            cache_num=6,
+            cache_num=3,  # Reduced from 6 to 3
             cache_rate=1.0,
-            num_workers=4,
+            num_workers=2,  # Reduced from 4 to 2
         )
     else:
         val_ds = Dataset(
@@ -268,7 +268,7 @@ class AverageMeter:
 def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
     model.eval()
     run_acc = AverageMeter()
-    raw_dice_scores = list()
+    raw_dice_scores = []
     with torch.no_grad():
         for batch in epoch_iterator_val:
             val_inputs, val_labels = (batch["image"].cuda(), batch["label"].cuda())
@@ -286,15 +286,31 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             raw_dice_score = dice_metric(
                 y_pred=val_output_convert, y=val_labels_convert
             )
-            raw_dice_scores.append(raw_dice_score[0])
+            # Move to CPU before appending to avoid GPU memory accumulation
+            raw_dice_scores.append(raw_dice_score[0].cpu())
             dice_scores, not_nans = dice_metric.aggregate()
             run_acc.update(dice_scores.cpu().numpy(), not_nans.cpu().numpy())
+
+            # Explicitly delete variables to free GPU memory
+            del val_inputs, val_labels, val_outputs
+            del (
+                val_labels_list,
+                val_labels_convert,
+                val_outputs_list,
+                val_output_convert,
+            )
+            del raw_dice_score, dice_scores, not_nans
+            torch.cuda.empty_cache()
+
             epoch_iterator_val.set_description(
                 "Validate (%d / %d Steps)" % (global_step, 10.0)
             )  # noqa: B038
 
         mean_dice_val = np.mean(run_acc.avg).item()
-        class_dice_score = torch.stack(raw_dice_scores, dim=0).mean(dim=0).cpu().numpy()
+        class_dice_score = (
+            torch.stack(raw_dice_scores, dim=0).mean(dim=0).numpy()
+        )  # Already on CPU
+
         # Log evaluation results
         with open(training_log_path, "a") as f:
             f.write(f"Step {global_step}: Validation Dice Score: {mean_dice_val:.6f}\n")
@@ -306,6 +322,10 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
                 f.write(
                     f"Step {global_step}: Class {class_idx} Dice Score: {class_dice_score[class_idx].item():.6f}\n"
                 )
+
+        # Clear the dice scores list
+        del raw_dice_scores
+        torch.cuda.empty_cache()
 
     return mean_dice_val, class_dice_score
 
@@ -389,19 +409,31 @@ def train(
         with torch.autocast("cuda"):
             logit_map = model(x)
             loss = loss_function(logit_map, y)
+
+        # Store loss value before cleanup
+        loss_value = loss.item()
+
         scaler.scale(loss).backward()
-        epoch_loss += loss.item()
+        epoch_loss += loss_value
         scaler.unscale_(optimizer)
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         optimizer.zero_grad()
+
+        # Explicitly delete variables to free GPU memory
+        del x, y, logit_map, loss
+
         epoch_iterator.set_description(  # noqa: B038
-            f"Training ({global_step} / {max_iterations} Steps) (loss={loss:2.5f})"
+            f"Training ({global_step} / {max_iterations} Steps) (loss={loss_value:2.5f})"
         )
+
         if (
             global_step % eval_num == 0 and global_step != 0
         ) or global_step == max_iterations:
+            # Clear memory before validation
+            torch.cuda.empty_cache()
+
             epoch_iterator_val = tqdm(
                 val_loader, desc="Validate (X / X Steps) (dice=X.X)", dynamic_ncols=True
             )
@@ -472,6 +504,11 @@ def train(
                     )
                 )
         global_step += 1
+
+        # Periodic memory cleanup
+        if global_step % 100 == 0:
+            torch.cuda.empty_cache()
+
     return global_step, dice_val_best, global_step_best
 
 
@@ -509,6 +546,17 @@ def perform_inference_and_visualize(
         image = val_inputs[0, 0].cpu().numpy()  # First channel, first batch
         label = val_labels[0, 0].cpu().numpy()  # First channel, first batch
         prediction = val_predictions[0].cpu().numpy()  # First batch
+
+        # Explicitly delete GPU tensors to free memory
+        del (
+            val_inputs,
+            val_labels,
+            val_outputs,
+            val_outputs_softmax,
+            val_predictions,
+            dice_scores,
+        )
+        torch.cuda.empty_cache()
 
         # Create visualization
         create_slice_visualization(
