@@ -135,9 +135,9 @@ def make_data_loder(
         train_ds = CacheDataset(
             data=datalist,
             transform=train_transforms,
-            cache_num=12,  # Reduced from 24 to 12
+            cache_num=24,
             cache_rate=1.0,
-            num_workers=4,  # Reduced from 8 to 4
+            num_workers=4,
         )
     else:
         train_ds = Dataset(
@@ -154,9 +154,9 @@ def make_data_loder(
         val_ds = CacheDataset(
             data=val_files,
             transform=val_transforms,
-            cache_num=3,  # Reduced from 6 to 3
+            cache_num=6,
             cache_rate=1.0,
-            num_workers=2,  # Reduced from 4 to 2
+            num_workers=4,
         )
     else:
         val_ds = Dataset(
@@ -406,6 +406,10 @@ def train(
     for step, batch in enumerate(epoch_iterator):
         step += 1
         x, y = (batch["image"].cuda(), batch["label"].cuda())
+
+        # Clear gradients explicitly before forward pass
+        optimizer.zero_grad()
+
         with torch.autocast("cuda"):
             logit_map = model(x)
             loss = loss_function(logit_map, y)
@@ -419,10 +423,15 @@ def train(
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
+
+        # Explicitly delete variables to free GPU memory immediately
+        del x, y, logit_map, loss
+        # Clear gradients after step to ensure no gradient accumulation
         optimizer.zero_grad()
 
-        # Explicitly delete variables to free GPU memory
-        del x, y, logit_map, loss
+        # Force garbage collection and cache clearing more frequently
+        if step % 10 == 0:
+            torch.cuda.empty_cache()
 
         epoch_iterator.set_description(  # noqa: B038
             f"Training ({global_step} / {max_iterations} Steps) (loss={loss_value:2.5f})"
@@ -705,6 +714,9 @@ def create_multi_plane_visualization(
 
 
 if __name__ == "__main__":
+    # Set PyTorch CUDA memory management settings
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
     p = argparse.ArgumentParser()
     p.add_argument(
         "--data_json_path",
