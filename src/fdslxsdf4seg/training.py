@@ -68,12 +68,16 @@ def make_data_loder(
             keys=["image", "label"], source_key="image", allow_smaller=True
         ),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        Spacingd(
-            keys=["image", "label"],
-            pixdim=(1.5, 1.5, 2.0),
-            mode=("bilinear", "nearest"),
-        ),
     ]
+
+    if real_data:
+        base_transforms.append(
+            Spacingd(
+                keys=["image", "label"],
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
+            )
+        )
 
     train_transforms = base_transforms.copy()
     train_transforms.extend(
