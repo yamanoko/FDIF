@@ -376,7 +376,12 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, scaler):
     print(f"Loading checkpoint from {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, weights_only=False)
 
-    model.load_state_dict(checkpoint["model_state_dict"])
+    if torch.cuda.device_count() > 1:
+        model = model.module  # Unwrap DataParallel
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model = torch.nn.DataParallel(model)
+    else:
+        model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
     scaler.load_state_dict(checkpoint["scaler_state_dict"])
@@ -944,7 +949,12 @@ if __name__ == "__main__":
     # Load the best model
     best_model_path = os.path.join(out_dir, "best_metric_model.pth")
     if os.path.exists(best_model_path):
-        model.load_state_dict(torch.load(best_model_path, weights_only=True))
+        if torch.cuda.device_count() > 1:
+            model = model.module  # Unwrap DataParallel
+            model.load_state_dict(torch.load(best_model_path, weights_only=True))
+            model = torch.nn.DataParallel(model)
+        else:
+            model.load_state_dict(torch.load(best_model_path, weights_only=True))
         print(f"Loaded best model from {best_model_path}")
     else:
         print("Best model not found, using current model for inference")
