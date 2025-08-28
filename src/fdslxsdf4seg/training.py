@@ -243,6 +243,12 @@ def create_model(
             )
     else:
         raise ValueError(f"Unknown model name: {model_name}")
+
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for training.")
+        model = torch.nn.DataParallel(
+            model, device_ids=list(range(torch.cuda.device_count()))
+        )
     return model
 
 
@@ -344,7 +350,6 @@ def save_checkpoint(
 ):
     """Save training checkpoint."""
     checkpoint = {
-        "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -354,6 +359,10 @@ def save_checkpoint(
         "epoch_loss_values": epoch_loss_values,
         "metric_values": metric_values,
     }
+    if torch.cuda.device_count() > 1:
+        checkpoint["model_state_dict"] = model.module.state_dict()
+    else:
+        checkpoint["model_state_dict"] = model.state_dict()
     torch.save(checkpoint, checkpoint_path)
     print(f"Checkpoint saved at step {global_step}: {checkpoint_path}")
 
@@ -474,7 +483,10 @@ def train(
 
             # Save latest model after each validation
             last_model_path = os.path.join(out_dir, "last_model.pth")
-            torch.save(model.state_dict(), last_model_path)
+            if torch.cuda.device_count() > 1:
+                torch.save(model.module.state_dict(), last_model_path)
+            else:
+                torch.save(model.state_dict(), last_model_path)
             print(f"Latest model saved at step {global_step}: {last_model_path}")
 
             plot_metrics(
@@ -487,9 +499,16 @@ def train(
             if dice_val > dice_val_best:
                 dice_val_best = dice_val
                 global_step_best = global_step
-                torch.save(
-                    model.state_dict(), os.path.join(out_dir, "best_metric_model.pth")
-                )
+                if torch.cuda.device_count() > 1:
+                    torch.save(
+                        model.module.state_dict(),
+                        os.path.join(out_dir, "best_metric_model.pth"),
+                    )
+                else:
+                    torch.save(
+                        model.state_dict(),
+                        os.path.join(out_dir, "best_metric_model.pth"),
+                    )
                 print(
                     "Model Was Saved ! Current Best Avg. Dice: {} Current Avg. Dice: {}".format(
                         dice_val_best, dice_val
