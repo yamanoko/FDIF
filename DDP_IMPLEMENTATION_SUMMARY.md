@@ -2,7 +2,7 @@
 
 ## Files Created
 
-1. **`src/fdslxsdf4seg/training_ddp.py`** - Main DDP training script (889 lines)
+1. **`src/fdslxsdf4seg/training_ddp.py`** - Main DDP training script (1046 lines)
 2. **`run_ddp_single_node.sh`** - ABCI job script for single-node DDP (8 GPUs)
 3. **`run_ddp_multi_node.sh`** - ABCI job script for multi-node DDP (4 nodes × 8 GPUs)
 4. **`DDP_TRAINING_README.md`** - Comprehensive documentation
@@ -29,6 +29,7 @@
 - **Rank 0 Operations**: Only rank 0 performs file I/O to avoid conflicts
 - **Distributed Validation**: Synchronized validation across all GPUs
 - **Consistent State**: Proper checkpoint saving/loading for DDP models
+- **Inference and Visualization**: Automatic inference and visualization after training
 
 ## Performance Benefits
 

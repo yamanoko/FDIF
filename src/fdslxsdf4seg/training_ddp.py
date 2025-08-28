@@ -3,6 +3,7 @@ import json
 import os
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -932,8 +933,241 @@ def train_ddp(
             f.write("  - training_loss_individual.png\n")
             f.write("  - validation_dice_individual.png\n")
 
+        # Perform inference and visualize results (only rank 0)
+        print_only_rank0("Performing inference with best model...")
+
+        # Load the best model
+        best_model_path = os.path.join(out_dir, "best_metric_model.pth")
+        if os.path.exists(best_model_path):
+            # Load to the underlying model (handle DDP wrapper)
+            if hasattr(ddp_model, "module"):
+                ddp_model.module.load_state_dict(
+                    torch.load(best_model_path, weights_only=True)
+                )
+            else:
+                ddp_model.load_state_dict(
+                    torch.load(best_model_path, weights_only=True)
+                )
+            print_only_rank0(f"Loaded best model from {best_model_path}")
+        else:
+            print_only_rank0("Best model not found, using current model for inference")
+
+        # Perform inference and visualization (only on rank 0)
+        perform_inference_and_visualize_ddp(
+            ddp_model, val_loader, out_dir, device, grid_size, args.out_channel, rank
+        )
+
+        if rank == 0:
+            with open(training_log_path, "a") as f:
+                f.write("Inference visualizations saved to:\n")
+                f.write("  - inference_visualization.png\n")
+                f.write("  - inference_multiplane_visualization.png\n")
+                f.write(
+                    "All visualizations (training curves and inference) are now complete.\n"
+                )
+
+    # Wait for all processes to complete before cleanup
+    if dist.is_initialized():
+        dist.barrier()
+
     # Clean up distributed environment
     cleanup_distributed()
+
+
+def perform_inference_and_visualize_ddp(
+    model, val_loader, out_dir, device, grid_size, out_channel, rank=0
+):
+    """Perform inference on validation data and create visualizations (DDP version)."""
+    # Only perform inference and visualization on rank 0 to avoid conflicts
+    if rank != 0:
+        return
+
+    model.eval()
+
+    # Get one validation sample
+    val_batch = next(iter(val_loader))
+    val_inputs = val_batch["image"].to(device)
+    val_labels = val_batch["label"].to(device)
+
+    with torch.no_grad():
+        # Perform inference
+        with torch.autocast("cuda"):
+            val_outputs = sliding_window_inference(val_inputs, grid_size, 4, model)
+
+        # Convert to predictions
+        val_outputs_softmax = torch.softmax(val_outputs, 1)
+        val_predictions = torch.argmax(val_outputs_softmax, dim=1)
+
+        # Calculate Dice score for this sample
+        from monai.metrics import compute_dice
+
+        dice_scores = compute_dice(
+            val_outputs_softmax, val_labels, include_background=False
+        )
+        mean_dice = torch.mean(dice_scores).item()
+
+        print_only_rank0(f"Sample Dice Score: {mean_dice:.4f}")
+
+        # Move to CPU and convert to numpy
+        image = val_inputs[0, 0].cpu().numpy()  # First channel, first batch
+        label = val_labels[0, 0].cpu().numpy()  # First channel, first batch
+        prediction = val_predictions[0].cpu().numpy()  # First batch
+
+        # Explicitly delete GPU tensors to free memory
+        del (
+            val_inputs,
+            val_labels,
+            val_outputs,
+            val_outputs_softmax,
+            val_predictions,
+            dice_scores,
+        )
+        torch.cuda.empty_cache()
+
+        # Create visualization
+        create_slice_visualization(
+            image, label, prediction, out_dir, mean_dice, out_channel
+        )
+
+
+def create_slice_visualization(
+    image, label, prediction, out_dir, dice_score=None, out_channel=14
+):
+    """Create and save slice visualizations comparing predictions and labels."""
+    # Get middle slices for visualization
+    depth = image.shape[2]
+    middle_slice = depth // 2
+
+    # Get slices
+    image_slice = image[:, :, middle_slice]
+    label_slice = label[:, :, middle_slice]
+    pred_slice = prediction[:, :, middle_slice]
+
+    # Use fixed value range for consistent color mapping across all data
+    # This ensures 0 is always black, and higher values have consistent colors
+    vmin = 0
+    vmax = out_channel - 1  # Maximum possible class index
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    title = "Inference Results - Middle Slice"
+    if dice_score is not None:
+        title += f" (Dice: {dice_score:.4f})"
+    fig.suptitle(title, fontsize=16)
+
+    # Original image
+    axes[0].imshow(image_slice, cmap="gray")
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
+
+    # Ground truth label with consistent color range
+    im1 = axes[1].imshow(label_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+    axes[1].set_title("Ground Truth Label")
+    axes[1].axis("off")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    # Prediction with consistent color range
+    im2 = axes[2].imshow(pred_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+    axes[2].set_title("Prediction")
+    axes[2].axis("off")
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    # Overlay: Image + Prediction with consistent color range
+    axes[3].imshow(image_slice, cmap="gray")
+    axes[3].imshow(pred_slice, cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
+    axes[3].set_title("Image + Prediction Overlay")
+    axes[3].axis("off")
+
+    plt.tight_layout()
+
+    # Save the visualization
+    viz_path = os.path.join(out_dir, "inference_visualization.png")
+    plt.savefig(viz_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Inference visualization saved to: {viz_path}")
+
+    # Also create axial, coronal, and sagittal views
+    create_multi_plane_visualization(
+        image, label, prediction, out_dir, dice_score, out_channel
+    )
+
+
+def create_multi_plane_visualization(
+    image, label, prediction, out_dir, dice_score=None, out_channel=14
+):
+    """Create visualizations across different anatomical planes."""
+    # Get middle slices for each plane
+    height, width, depth = image.shape
+
+    # Axial (xy plane)
+    axial_slice = depth // 2
+    image_axial = image[:, :, axial_slice]
+    label_axial = label[:, :, axial_slice]
+    pred_axial = prediction[:, :, axial_slice]
+
+    # Coronal (xz plane)
+    coronal_slice = width // 2
+    image_coronal = image[:, coronal_slice, :]
+    label_coronal = label[:, coronal_slice, :]
+    pred_coronal = prediction[:, coronal_slice, :]
+
+    # Sagittal (yz plane)
+    sagittal_slice = height // 2
+    image_sagittal = image[sagittal_slice, :, :]
+    label_sagittal = label[sagittal_slice, :, :]
+    pred_sagittal = prediction[sagittal_slice, :, :]
+
+    # Use fixed value range for consistent color mapping across all data
+    # This ensures 0 is always black, and higher values have consistent colors
+    vmin = 0
+    vmax = out_channel - 1  # Maximum possible class index
+
+    # Create comprehensive visualization
+    fig, axes = plt.subplots(3, 4, figsize=(20, 15))
+    title = "Multi-Plane Inference Results"
+    if dice_score is not None:
+        title += f" (Dice: {dice_score:.4f})"
+    fig.suptitle(title, fontsize=16)
+
+    planes = [
+        ("Axial", image_axial, label_axial, pred_axial),
+        ("Coronal", image_coronal, label_coronal, pred_coronal),
+        ("Sagittal", image_sagittal, label_sagittal, pred_sagittal),
+    ]
+
+    for i, (plane_name, img, lbl, pred) in enumerate(planes):
+        # Original image
+        axes[i, 0].imshow(img, cmap="gray")
+        axes[i, 0].set_title(f"{plane_name} - Image")
+        axes[i, 0].axis("off")
+
+        # Ground truth with consistent color range
+        im1 = axes[i, 1].imshow(lbl, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+        axes[i, 1].set_title(f"{plane_name} - Ground Truth")
+        axes[i, 1].axis("off")
+        plt.colorbar(im1, ax=axes[i, 1], fraction=0.046, pad=0.04)
+
+        # Prediction with consistent color range
+        im2 = axes[i, 2].imshow(pred, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+        axes[i, 2].set_title(f"{plane_name} - Prediction")
+        axes[i, 2].axis("off")
+        plt.colorbar(im2, ax=axes[i, 2], fraction=0.046, pad=0.04)
+
+        # Overlay with consistent color range
+        axes[i, 3].imshow(img, cmap="gray")
+        axes[i, 3].imshow(pred, cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
+        axes[i, 3].set_title(f"{plane_name} - Overlay")
+        axes[i, 3].axis("off")
+
+    plt.tight_layout()
+
+    # Save the multi-plane visualization
+    multiplane_path = os.path.join(out_dir, "inference_multiplane_visualization.png")
+    plt.savefig(multiplane_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Multi-plane visualization saved to: {multiplane_path}")
 
 
 def main_single_node():

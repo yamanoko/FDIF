@@ -23,6 +23,7 @@ The new DDP training script (`training_ddp.py`) enables distributed training acr
 - **Checkpointing**: Supports resuming training from checkpoints in distributed environment
 - **Synchronized Validation**: Performs validation across all GPUs with synchronized metrics
 - **Rank 0 Only Operations**: File I/O, logging, and model saving are performed only by rank 0 to avoid conflicts
+- **Inference and Visualization**: Automatic inference and visualization generation after training completion
 
 ### Single-Node DDP
 
@@ -130,6 +131,9 @@ DDP training produces the same output files as single-GPU training:
 - `training_checkpoint.pth`: Training checkpoint for resuming
 - Training metrics and visualizations
 - Log files with per-class dice scores
+- **Inference visualizations**: Automatic generation of inference results
+  - `inference_visualization.png`: Single slice comparison
+  - `inference_multiplane_visualization.png`: Multi-plane (axial, coronal, sagittal) views
 
 ## Troubleshooting
 
