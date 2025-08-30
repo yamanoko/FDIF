@@ -17,6 +17,7 @@ dependencies = [
     "tqdm>=4.60.0",
     "nibabel>=5.3.2",
     "plotly>=6.3.0",
+    "kaleido>=1.0.0",
 ]
 
 [build-system]

@@ -14,8 +14,15 @@ from src.fdslxsdf4seg.generate_sdf_dataset import (
     Cylinder,
     HexagonalPrism,
     Sphere,
+    ThinCone,
+    ThinCylinder,
     Torus,
     visualize_sample,
+)
+from src.fdslxsdf4seg.sdf_object import (
+    ConcaveCylinder,
+    ConeCylinder,
+    ConvexCylinder,
 )
 
 
@@ -49,6 +56,11 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
         (
+            "ThinCylinder",
+            ThinCylinder,
+            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
+        ),
+        (
             "Torus",
             Torus,
             {"center": (32.0, 32.0, 32.0), "major_r": 16.0, "minor_r": 6.0},
@@ -59,9 +71,46 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
         (
+            "ThinCone",
+            ThinCone,
+            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
+        ),
+        (
             "HexagonalPrism",
             HexagonalPrism,
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
+        ),
+        (
+            "ConcaveCylinder",
+            ConcaveCylinder,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "height": 32.0,
+                "second_radius": 8.0,
+                "neck": 5.0,
+            },
+        ),
+        (
+            "ConvexCylinder",
+            ConvexCylinder,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "height": 32.0,
+                "second_radius": 16.0,
+                "neck": 5.0,
+            },
+        ),
+        (
+            "ConeCylinder",
+            ConeCylinder,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "height": 32.0,
+                "second_radius": 8.0,
+            },
         ),
     ]
 
@@ -101,11 +150,8 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
         # 統計情報を表示
         inside_count = (sdf < 0).sum().item()
         outside_count = (sdf > 0).sum().item()
-        max_dist = primitive.max_distance()
 
-        print(
-            f"  {name}: inside={inside_count}, outside={outside_count}, max_dist={max_dist:.2f}"
-        )
+        print(f"  {name}: inside={inside_count}, outside={outside_count}")
         print(f"  Saved: {output_file}")
         print(f"  Slice: {output_file.replace('.png', '_slice.png')}")
 

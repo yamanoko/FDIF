@@ -396,3 +396,152 @@ class HexagonalPrism(SDFObject):
             torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
         )
         return torch.norm(outside, dim=0) + inside
+
+
+class ConcaveCylinder(SDFObject):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        second_radius=None,
+        neck=None,
+        height=None,
+        axis=2,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
+        if height is None:
+            height = random.uniform(W * 0.2, W * 0.3)
+        if second_radius is None:
+            second_radius = radius * random.uniform(0.3, 0.8)
+        if neck is None:
+            neck = height * random.uniform(-0.7, 0.7)
+        self.radius = radius
+        self.h = height / 2.0
+        self.second_radius = second_radius
+        self.neck = neck
+        self.axis = axis
+
+    def _sdf(self, x, y, z):
+        p = torch.stack([x, y, z], dim=0)
+        negative_radius = (self.second_radius - self.radius) / (self.neck + self.h) * (
+            p[self.axis] + self.h
+        ) + self.radius
+        positive_radius = (self.second_radius - self.radius) / (self.neck - self.h) * (
+            p[self.axis] - self.neck
+        ) + self.second_radius
+        current_radius = torch.where(
+            p[self.axis] < self.neck, negative_radius, positive_radius
+        )
+        perp = (
+            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
+            - current_radius
+        )
+
+        along = torch.abs(p[self.axis]) - self.h
+        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
+        inside = torch.clamp(
+            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
+        )
+        return torch.norm(outside, dim=0) + inside
+
+
+class ConvexCylinder(SDFObject):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        second_radius=None,
+        neck=None,
+        height=None,
+        axis=2,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
+        if height is None:
+            height = random.uniform(W * 0.2, W * 0.3)
+        if second_radius is None:
+            second_radius = radius * random.uniform(1.2, 1.6)
+        if neck is None:
+            neck = height * random.uniform(-0.7, 0.7)
+        self.radius = radius
+        self.h = height / 2.0
+        self.second_radius = second_radius
+        self.neck = neck
+        self.axis = axis
+
+    def _sdf(self, x, y, z):
+        p = torch.stack([x, y, z], dim=0)
+        negative_radius = (self.second_radius - self.radius) / (self.neck + self.h) * (
+            p[self.axis] + self.h
+        ) + self.radius
+        positive_radius = (self.second_radius - self.radius) / (self.neck - self.h) * (
+            p[self.axis] - self.neck
+        ) + self.second_radius
+        current_radius = torch.where(
+            p[self.axis] < self.neck, negative_radius, positive_radius
+        )
+        perp = (
+            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
+            - current_radius
+        )
+
+        along = torch.abs(p[self.axis]) - self.h
+        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
+        inside = torch.clamp(
+            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
+        )
+        return torch.norm(outside, dim=0) + inside
+
+
+class ConeCylinder(SDFObject):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        second_radius=None,
+        height=None,
+        axis=2,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
+        if height is None:
+            height = random.uniform(W * 0.2, W * 0.3)
+        if second_radius is None:
+            second_radius = radius * random.uniform(0.3, 1.6)
+        self.radius = radius
+        self.h = height / 2.0
+        self.second_radius = second_radius
+        self.axis = axis
+
+    def _sdf(self, x, y, z):
+        p = torch.stack([x, y, z], dim=0)
+        current_radius = (self.second_radius - self.radius) / (2 * self.h) * (
+            p[self.axis] + self.h
+        ) + self.radius
+        perp = (
+            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
+            - current_radius
+        )
+
+        along = torch.abs(p[self.axis]) - self.h
+        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
+        inside = torch.clamp(
+            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
+        )
+        return torch.norm(outside, dim=0) + inside

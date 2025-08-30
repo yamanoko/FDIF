@@ -82,7 +82,6 @@ class SDFSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         n_objs = random.randint(self.min_o, self.max_o)
         sdfs = []
-        max_ds = []
         primitive_ids = random.choices(list(self.primitive_classes.keys()), k=n_objs)
         for id in primitive_ids:
             PrimClass = self.primitive_classes[id]
@@ -91,13 +90,6 @@ class SDFSegmentationDataset(Dataset):
             )
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
-            max_ds.append(obj.max_distance())
-
-        # # 動的に a を決定し平均
-        # a_vals = [128 ** (1.0 / md) for md in max_ds]
-        # vals = [torch.pow(a, -sdf) for a, sdf in zip(a_vals, sdfs)]
-        # x_vol = torch.stack(vals, dim=0).mean(dim=0)
-        # x_vol = torch.clamp(x_vol, 0.0, 128.0).to(torch.uint8).unsqueeze(0)
 
         x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 2.0) + 1.0)
         # x_vol = x_vol.mean(dim=0)
