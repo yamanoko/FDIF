@@ -66,12 +66,6 @@ class SDFObject:
         """
         raise NotImplementedError
 
-    def max_distance(self) -> float:
-        """
-        このオブジェクトのバウンディング半径相当
-        """
-        raise NotImplementedError
-
     def tranlate_matrix(self, tx, ty, tz):
         """
         X, Y, Z 軸方向の平行移動行列を生成
@@ -181,9 +175,6 @@ class Sphere(SDFObject):
         p = torch.stack([x, y, z], dim=0)
         return torch.norm(p, dim=0) - self.radius
 
-    def max_distance(self):
-        return self.radius
-
 
 class Box(SDFObject):
     def __init__(
@@ -209,9 +200,6 @@ class Box(SDFObject):
         outside = torch.clamp(q, min=0.0)
         inside = torch.clamp(torch.max(q, dim=0).values, max=0.0)
         return torch.norm(outside, dim=0) + inside
-
-    def max_distance(self):
-        return float(torch.norm(self.half))
 
 
 class Cylinder(SDFObject):
@@ -247,9 +235,6 @@ class Cylinder(SDFObject):
             torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
         )
         return torch.norm(outside, dim=0) + inside
-
-    def max_distance(self):
-        return float(max(self.h, self.radius))
 
 
 class ThinCylinder(Cylinder):
@@ -296,9 +281,6 @@ class Torus(SDFObject):
         q = torch.stack([q, y], dim=0).norm(dim=0) - self.r
         return q
 
-    def max_distance(self):
-        return self.R + self.r
-
 
 class Cone(SDFObject):
     def __init__(
@@ -342,9 +324,6 @@ class Cone(SDFObject):
         mask = max_q > 0.0
         min_val = torch.min(torch.stack([d, p[1]], dim=0), dim=0).values
         return torch.where(mask, d, -min_val)
-
-    def max_distance(self):
-        return float(max(self.radius, self.height))
 
 
 class ThinCone(Cone):
@@ -417,6 +396,3 @@ class HexagonalPrism(SDFObject):
             torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
         )
         return torch.norm(outside, dim=0) + inside
-
-    def max_distance(self):
-        return float(max(self.radius, self.height))
