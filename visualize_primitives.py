@@ -9,30 +9,27 @@ import numpy as np
 import torch
 
 from src.fdslxsdf4seg.generate_sdf_dataset import (
-    Box,
-    Cone,
-    Cylinder,
-    HexagonalPrism,
-    Sphere,
-    ThinCone,
-    ThinCylinder,
-    Torus,
     visualize_sample,
 )
 from src.fdslxsdf4seg.sdf_object import (
     ConcaveCylinder,
     ConcaveSectorPolygonPrism,
+    Cone,
     ConeCylinder,
     ConeSectorPolygonPrism,
     ConvexCylinder,
     ConvexSectorPolygonPrism,
+    Cylinder,
     HeptagonPrism,
+    HexagonalPrism,
     HexagonPrism,
     NonagonPrism,
     OctagonPrism,
     PentagonPrism,
     SectorPolygonPrism,
+    Sphere,
     SquarePrism,
+    Torus,
     TrianglePrism,
 )
 
@@ -57,18 +54,8 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
     primitives = [
         ("Sphere", Sphere, {"center": (32.0, 32.0, 32.0), "radius": 16.0}),
         (
-            "Box",
-            Box,
-            {"center": (32.0, 32.0, 32.0), "half_extents": (12.0, 12.0, 12.0)},
-        ),
-        (
             "Cylinder",
             Cylinder,
-            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
-        ),
-        (
-            "ThinCylinder",
-            ThinCylinder,
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
         (
@@ -79,11 +66,6 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
         (
             "Cone",
             Cone,
-            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
-        ),
-        (
-            "ThinCone",
-            ThinCone,
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
         ),
         (
@@ -98,7 +80,7 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "center": (32.0, 32.0, 32.0),
                 "radius": 12.0,
                 "height": 32.0,
-                "second_radius": 8.0,
+                "second_scale": 0.5,
                 "neck": 5.0,
             },
         ),
@@ -109,7 +91,7 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "center": (32.0, 32.0, 32.0),
                 "radius": 12.0,
                 "height": 32.0,
-                "second_radius": 16.0,
+                "second_scale": 1.5,
                 "neck": 5.0,
             },
         ),
@@ -120,7 +102,7 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "center": (32.0, 32.0, 32.0),
                 "radius": 12.0,
                 "height": 32.0,
-                "second_radius": 8.0,
+                "second_scale": 0.5,
             },
         ),
         # SectorPolygonPrism の基本版

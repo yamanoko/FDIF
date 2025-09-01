@@ -15,13 +15,10 @@ from plotly.subplots import make_subplots
 from torch.utils.data import DataLoader, Dataset
 
 from fdslxsdf4seg.sdf_object import (
-    Box,
     Cone,
     Cylinder,
     HexagonalPrism,
     Sphere,
-    ThinCone,
-    ThinCylinder,
     Torus,
 )
 
@@ -50,12 +47,9 @@ class SDFSegmentationDataset(Dataset):
         # プリミティブの名前とクラスのマッピング
         all_primitives = {
             "sphere": Sphere,
-            "box": Box,
             "cylinder": Cylinder,
-            "thin_cylinder": ThinCylinder,
             "torus": Torus,
             "cone": Cone,
-            "thin_cone": ThinCone,
             "hex_prism": HexagonalPrism,
         }
 

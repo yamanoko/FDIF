@@ -5,6 +5,8 @@ from typing import List, Optional
 
 import torch
 
+from fdslxsdf4seg.sdf_2d import Hexagon, _SectorPolygonBase
+
 
 # --- SDFベースクラス ---
 class SDFObject:
@@ -91,7 +93,6 @@ class SDFObject:
         angle_x, angle_y, angle_z: ラジアン単位の回転角度
         戻り値: 回転行列 (4x4)
         """
-        import math
 
         Rx = torch.tensor(
             [
@@ -177,87 +178,6 @@ class Sphere(SDFObject):
         return torch.norm(p, dim=0) - self.radius
 
 
-class Box(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        half_extents=None,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if half_extents is None:
-            hx = random.uniform(D * 0.05, D * 0.2)
-            hy = random.uniform(H * 0.05, H * 0.2)
-            hz = random.uniform(W * 0.05, W * 0.2)
-            half_extents = (hz, hy, hx)
-        self.half = torch.tensor(half_extents, device=device).view(3, 1, 1, 1)
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        q = torch.abs(p) - self.half
-        outside = torch.clamp(q, min=0.0)
-        inside = torch.clamp(torch.max(q, dim=0).values, max=0.0)
-        return torch.norm(outside, dim=0) + inside
-
-
-class Cylinder(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        height=None,
-        axis=2,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
-        self.radius = radius
-        self.h = height / 2.0
-        self.axis = axis
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        perp = (
-            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
-            - self.radius
-        )
-        along = torch.abs(p[self.axis]) - self.h
-        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
-        inside = torch.clamp(
-            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
-        )
-        return torch.norm(outside, dim=0) + inside
-
-
-class ThinCylinder(Cylinder):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        height=None,
-    ):
-        if radius is None:
-            radius = random.uniform(
-                min(grid_size[0], grid_size[1]) * 0.025,
-                min(grid_size[0], grid_size[1]) * 0.05,
-            )
-        if height is None:
-            height = random.uniform(grid_size[2] * 0.3, grid_size[2] * 0.5)
-        super().__init__(grid_size, device, center, transform, radius, height)
-
-
 class Torus(SDFObject):
     def __init__(
         self,
@@ -325,307 +245,6 @@ class Cone(SDFObject):
         mask = max_q > 0.0
         min_val = torch.min(torch.stack([d, p[1]], dim=0), dim=0).values
         return torch.where(mask, d, -min_val)
-
-
-class ThinCone(Cone):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        height=None,
-    ):
-        if radius is None:
-            radius = random.uniform(
-                min(grid_size[0], grid_size[1]) * 0.025,
-                min(grid_size[0], grid_size[1]) * 0.05,
-            )
-        if height is None:
-            height = random.uniform(grid_size[2] * 0.3, grid_size[2] * 0.5)
-        super().__init__(grid_size, device, center, transform, radius, height)
-
-
-class HexagonalPrism(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        height=None,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.1, W * 0.3)
-        self.radius = radius
-        self.height = height
-
-    def _sdf(self, x, y, z):
-        k = torch.tensor(
-            [[-0.8660254], [0.5], [0.57735]], device=self.device
-        )  # cos(30°), sin(30°), 1/sqrt(3)
-        k = k.view(3, 1, 1, 1).expand(3, *self.grid_size)
-        p = torch.stack([x, y], dim=0)
-        p = torch.abs(p)
-        p -= (
-            2.0
-            * torch.min(
-                torch.stack(
-                    [torch.sum(k[:2] * p, dim=0), torch.zeros_like(k[0])], dim=0
-                ),
-                dim=0,
-            ).values
-            * k[:2]
-        )
-        p -= torch.stack(
-            [
-                torch.clamp(p[0], min=-k[2] * self.radius, max=k[2] * self.radius),
-                torch.ones_like(p[1]) * self.radius,
-            ],
-            dim=0,
-        )
-        perp = torch.norm(p, dim=0) * torch.sign(p[1])
-        along = torch.abs(z) - self.height / 2.0
-        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
-        inside = torch.clamp(
-            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
-        )
-        return torch.norm(outside, dim=0) + inside
-
-
-class ConcaveCylinder(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        second_radius=None,
-        neck=None,
-        height=None,
-        axis=2,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
-        if second_radius is None:
-            second_radius = radius * random.uniform(0.3, 0.8)
-        if neck is None:
-            neck = height * random.uniform(-0.7, 0.7)
-        self.radius = radius
-        self.h = height / 2.0
-        self.second_radius = second_radius
-        self.neck = neck
-        self.axis = axis
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        negative_radius = (self.second_radius - self.radius) / (self.neck + self.h) * (
-            p[self.axis] + self.h
-        ) + self.radius
-        positive_radius = (self.second_radius - self.radius) / (self.neck - self.h) * (
-            p[self.axis] - self.neck
-        ) + self.second_radius
-        current_radius = torch.where(
-            p[self.axis] < self.neck, negative_radius, positive_radius
-        )
-        perp = (
-            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
-            - current_radius
-        )
-
-        along = torch.abs(p[self.axis]) - self.h
-        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
-        inside = torch.clamp(
-            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
-        )
-        return torch.norm(outside, dim=0) + inside
-
-
-class ConvexCylinder(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        second_radius=None,
-        neck=None,
-        height=None,
-        axis=2,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
-        if second_radius is None:
-            second_radius = radius * random.uniform(1.2, 1.6)
-        if neck is None:
-            neck = height * random.uniform(-0.7, 0.7)
-        self.radius = radius
-        self.h = height / 2.0
-        self.second_radius = second_radius
-        self.neck = neck
-        self.axis = axis
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        negative_radius = (self.second_radius - self.radius) / (self.neck + self.h) * (
-            p[self.axis] + self.h
-        ) + self.radius
-        positive_radius = (self.second_radius - self.radius) / (self.neck - self.h) * (
-            p[self.axis] - self.neck
-        ) + self.second_radius
-        current_radius = torch.where(
-            p[self.axis] < self.neck, negative_radius, positive_radius
-        )
-        perp = (
-            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
-            - current_radius
-        )
-
-        along = torch.abs(p[self.axis]) - self.h
-        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
-        inside = torch.clamp(
-            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
-        )
-        return torch.norm(outside, dim=0) + inside
-
-
-class ConeCylinder(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        second_radius=None,
-        height=None,
-        axis=2,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.1, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
-        if second_radius is None:
-            second_radius = radius * random.uniform(0.3, 1.6)
-        self.radius = radius
-        self.h = height / 2.0
-        self.second_radius = second_radius
-        self.axis = axis
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        current_radius = (self.second_radius - self.radius) / (2 * self.h) * (
-            p[self.axis] + self.h
-        ) + self.radius
-        perp = (
-            torch.norm(torch.stack([p[i] for i in range(3) if i != self.axis]), dim=0)
-            - current_radius
-        )
-
-        along = torch.abs(p[self.axis]) - self.h
-        outside = torch.clamp(torch.stack([perp, along], dim=0), min=0.0)
-        inside = torch.clamp(
-            torch.max(torch.stack([perp, along], dim=0), dim=0).values, max=0.0
-        )
-        return torch.norm(outside, dim=0) + inside
-
-
-class _SectorPolygonBase:  # SDFObject にミックスインして使う内部基底
-    EPS = 1e-12
-    TAU = 2.0 * math.pi
-
-    def __init__(
-        self,
-        n: int,
-        r1: float,
-        r2: float,
-        seed: Optional[int] = None,
-        device=None,
-        dtype=torch.float32,
-    ):
-        self.n = max(3, int(n))
-        self.rmin = float(min(r1, r2))
-        self.rmax = float(max(r1, r2))
-        self.seed = random.randrange(1 << 30) if seed is None else int(seed)
-        self._rng = random.Random(self.seed)
-        self.device = device
-        self.dtype = dtype
-        self.verts = self._build_vertices().to(device=device, dtype=dtype)  # (n,2)
-
-    def _build_vertices(self) -> torch.Tensor:
-        vs = []
-        for i in range(self.n):
-            a0 = self.TAU * (i / self.n)
-            a1 = self.TAU * ((i + 1) / self.n)
-            ang = self._rng.uniform(a0, a1)  # セクタ内の角度
-            rad = self._rng.uniform(self.rmin, self.rmax)  # 半径レンジ
-            vs.append([rad * math.cos(ang), rad * math.sin(ang)])
-        return torch.tensor(vs, dtype=torch.float32)
-
-    @staticmethod
-    def _segment_dist2(Px, Py, ax, ay, bx, by, eps=1e-12):
-        ex = bx - ax
-        ey = by - ay
-        wpx = Px - ax
-        wpy = Py - ay
-        ee = ex * ex + ey * ey
-        t = ((wpx * ex + wpy * ey) / (ee + eps)).clamp(0.0, 1.0)
-        nx = wpx - t * ex
-        ny = wpy - t * ey
-        return nx * nx + ny * ny
-
-    @staticmethod
-    def _winding_number(Px, Py, ax, ay, bx, by):
-        up = (ay <= Py) & (by > Py)
-        down = (ay > Py) & (by <= Py)
-        ex = bx - ax
-        ey = by - ay
-        crossv = ex * (Py - ay) - ey * (Px - ax)  # cross(e, p-a)
-        wn = torch.zeros_like(Px, dtype=torch.int32)
-        wn = wn + (up & (crossv > 0)).to(torch.int32)
-        wn = wn - (down & (crossv < 0)).to(torch.int32)
-        return wn
-
-    def sdf2d_base(self, X, Y):
-        """
-        2D 多角形 SDF（内:負, 外:正）。X,Y: (N,)
-        """
-        device, dtype = X.device, X.dtype
-        d2 = torch.full_like(X, 1e30, dtype=dtype, device=device)
-        wn_total = torch.zeros_like(X, dtype=torch.int32, device=device)
-
-        V = self.verts.to(device=device, dtype=dtype)
-        n = V.shape[0]
-        for i in range(n):
-            ax, ay = V[i, 0], V[i, 1]
-            bx, by = V[(i + 1) % n, 0], V[(i + 1) % n, 1]
-            d2_i = self._segment_dist2(X, Y, ax, ay, bx, by, eps=self.EPS)
-            d2 = torch.minimum(d2, d2_i)
-            wn_total = wn_total + self._winding_number(X, Y, ax, ay, bx, by)
-
-        dist = torch.sqrt(d2 + self.EPS)
-        sign_inside = torch.where(
-            wn_total == 0, torch.ones_like(dist), -torch.ones_like(dist)
-        )
-        return sign_inside * dist
 
 
 class _PrismBase(SDFObject):
@@ -796,6 +415,177 @@ class _ConePrismBase(_PrismBase):
 
     def sdf2d_base(self, X, Y):
         raise NotImplementedError
+
+
+class Cylinder(_PrismBase):
+    """
+    一定スケールの押し出し（通常のプリズム）
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConvexCylinder(_ConvexPrismBase):
+    """
+    ふくらみ（barrel）。scale が中央（neck）で最大、両端で最小。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConvexPrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConcaveCylinder(_ConcavePrismBase):
+    """
+    くびれ（hourglass）。scale が中央（neck）で最小、両端で最大。
+    Cylinder の Concave と同じ区分線形をスケールに適用。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConcavePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConeCylinder(_ConePrismBase):
+    """
+    円錐台。scale が両端で一定、中央で second_scale。
+    Cylinder の線形補間式を踏襲。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class HexagonalPrism(_PrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+        self.hex_base = Hexagon(radius=radius, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.hex_base.sdf2d_base(X, Y)
 
 
 class SectorPolygonPrism(_PrismBase):
