@@ -21,8 +21,19 @@ from src.fdslxsdf4seg.generate_sdf_dataset import (
 )
 from src.fdslxsdf4seg.sdf_object import (
     ConcaveCylinder,
+    ConcaveSectorPolygonPrism,
     ConeCylinder,
+    ConeSectorPolygonPrism,
     ConvexCylinder,
+    ConvexSectorPolygonPrism,
+    HeptagonPrism,
+    HexagonPrism,
+    NonagonPrism,
+    OctagonPrism,
+    PentagonPrism,
+    SectorPolygonPrism,
+    SquarePrism,
+    TrianglePrism,
 )
 
 
@@ -110,6 +121,139 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "radius": 12.0,
                 "height": 32.0,
                 "second_radius": 8.0,
+            },
+        ),
+        # SectorPolygonPrism の基本版
+        (
+            "SectorPolygonPrism",
+            SectorPolygonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "n": 8,
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        # 多角形プリズムの子クラス
+        (
+            "TrianglePrism",
+            TrianglePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "SquarePrism",
+            SquarePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "PentagonPrism",
+            PentagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "HexagonPrism",
+            HexagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "HeptagonPrism",
+            HeptagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "OctagonPrism",
+            OctagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "NonagonPrism",
+            NonagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 10.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        # バリエーション付きプリズム
+        (
+            "ConcaveSectorPolygonPrism",
+            ConcaveSectorPolygonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "n": 6,
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "ConvexSectorPolygonPrism",
+            ConvexSectorPolygonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "n": 7,
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "ConeSectorPolygonPrism",
+            ConeSectorPolygonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "n": 5,
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 0.3,
+                "seed": 42,
             },
         ),
     ]
