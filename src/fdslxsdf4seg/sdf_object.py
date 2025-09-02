@@ -262,6 +262,32 @@ class Octahedron(SDFObject):
         return m * 0.5773502691896257  # 1/sqrt(3)
 
 
+class _RevolutionBase(SDFObject):
+    def __init__(
+        self, grid_size, device, center=None, transform=False, axis=1, distance=None
+    ):
+        super().__init__(grid_size, device, center, transform)
+        D, H, W = grid_size
+        if distance is None:
+            self.distance = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.1)
+        else:
+            self.distance = distance
+        if axis >= 2 or axis < 0:
+            raise ValueError("axis must be 0, 1, or 2.")
+        self.axis = axis
+
+    def sdf2d_base(self, X, Y):
+        raise NotImplementedError
+
+    def _sdf(self, x, y, z):
+        if self.axis == 0:
+            q = torch.stack([y, z], dim=0).norm(dim=0) - self.distance
+            return self.sdf2d_base(x, q)
+        elif self.axis == 1:
+            q = torch.stack([x, z], dim=0).norm(dim=0) - self.distance
+            return self.sdf2d_base(q, y)
+
+
 class _PrismBase(SDFObject):
     def __init__(
         self,
