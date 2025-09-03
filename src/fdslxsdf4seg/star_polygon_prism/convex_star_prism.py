@@ -15,6 +15,8 @@ class FiveStarConvexPrism(ConvexStarPrism):
         radius=None,
         w=None,
         height=None,
+        second_scale=None,  # > 1.0 推奨（ふくらみ）
+        neck=None,  # 中央からのバイアス位置 [-h, h]
         axis=2,
         seed=None,
     ):
@@ -27,6 +29,8 @@ class FiveStarConvexPrism(ConvexStarPrism):
             n=5,
             w=w,
             height=height,
+            second_scale=second_scale,
+            neck=neck,
             axis=axis,
             seed=seed,
         )
@@ -42,6 +46,8 @@ class SixStarConvexPrism(ConvexStarPrism):
         radius=None,
         w=None,
         height=None,
+        second_scale=None,  # > 1.0 推奨（ふくらみ）
+        neck=None,  # 中央からのバイアス位置 [-h, h]
         axis=2,
         seed=None,
     ):
@@ -54,6 +60,8 @@ class SixStarConvexPrism(ConvexStarPrism):
             n=6,
             w=w,
             height=height,
+            second_scale=second_scale,
+            neck=neck,
             axis=axis,
             seed=seed,
         )
@@ -69,6 +77,8 @@ class SevenStarConvexPrism(ConvexStarPrism):
         radius=None,
         w=None,
         height=None,
+        second_scale=None,  # > 1.0 推奨（ふくらみ）
+        neck=None,  # 中央からのバイアス位置 [-h, h]
         axis=2,
         seed=None,
     ):
@@ -81,6 +91,8 @@ class SevenStarConvexPrism(ConvexStarPrism):
             n=7,
             w=w,
             height=height,
+            second_scale=second_scale,
+            neck=neck,
             axis=axis,
             seed=seed,
         )
@@ -96,6 +108,8 @@ class EightStarConvexPrism(ConvexStarPrism):
         radius=None,
         w=None,
         height=None,
+        second_scale=None,  # > 1.0 推奨（ふくらみ）
+        neck=None,  # 中央からのバイアス位置 [-h, h]
         axis=2,
         seed=None,
     ):
@@ -108,6 +122,8 @@ class EightStarConvexPrism(ConvexStarPrism):
             n=8,
             w=w,
             height=height,
+            second_scale=second_scale,
+            neck=neck,
             axis=axis,
             seed=seed,
         )

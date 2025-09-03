@@ -15,6 +15,7 @@ class FiveStarConePrism(ConeStarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        second_scale=None,
         axis=2,
         seed=None,
     ):
@@ -27,6 +28,7 @@ class FiveStarConePrism(ConeStarPrism):
             n=5,
             w=w,
             height=height,
+            second_scale=second_scale,
             axis=axis,
             seed=seed,
         )
@@ -42,6 +44,7 @@ class SixStarConePrism(ConeStarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        second_scale=None,
         axis=2,
         seed=None,
     ):
@@ -54,6 +57,7 @@ class SixStarConePrism(ConeStarPrism):
             n=6,
             w=w,
             height=height,
+            second_scale=second_scale,
             axis=axis,
             seed=seed,
         )
@@ -69,6 +73,7 @@ class SevenStarConePrism(ConeStarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        second_scale=None,
         axis=2,
         seed=None,
     ):
@@ -81,6 +86,7 @@ class SevenStarConePrism(ConeStarPrism):
             n=7,
             w=w,
             height=height,
+            second_scale=second_scale,
             axis=axis,
             seed=seed,
         )
@@ -96,6 +102,7 @@ class EightStarConePrism(ConeStarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        second_scale=None,
         axis=2,
         seed=None,
     ):
@@ -108,6 +115,7 @@ class EightStarConePrism(ConeStarPrism):
             n=8,
             w=w,
             height=height,
+            second_scale=second_scale,
             axis=axis,
             seed=seed,
         )

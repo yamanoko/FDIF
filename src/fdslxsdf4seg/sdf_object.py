@@ -256,7 +256,7 @@ class _StarRevolutionBase(_RevolutionBase):
     ):
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.1)
+            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.2)
         if distance is None:
             distance = random.uniform(0.0, radius * 0.5)
         super().__init__(grid_size, device, center, transform, axis, distance)
@@ -453,126 +453,6 @@ class _PyramidPrismBase(_ConePrismBase):
         )
 
 
-class ConvexCylinder(_ConvexPrismBase):
-    """
-    ふくらみ（barrel）。scale が中央（neck）で最大、両端で最小。
-    """
-
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius: Optional[float] = None,
-        height: Optional[float] = None,
-        second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
-        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _ConvexPrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            second_scale,
-            neck,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
-        self.radius = radius
-
-    def sdf2d_base(self, X, Y):
-        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
-
-
-class ConcaveCylinder(_ConcavePrismBase):
-    """
-    くびれ（hourglass）。scale が中央（neck）で最小、両端で最大。
-    Cylinder の Concave と同じ区分線形をスケールに適用。
-    """
-
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius: Optional[float] = None,
-        height: Optional[float] = None,
-        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
-        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _ConcavePrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            second_scale,
-            neck,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
-        self.radius = radius
-
-    def sdf2d_base(self, X, Y):
-        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
-
-
-class ConeCylinder(_ConePrismBase):
-    """
-    円錐台。scale が両端で一定、中央で second_scale。
-    Cylinder の線形補間式を踏襲。
-    """
-
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius: Optional[float] = None,
-        height: Optional[float] = None,
-        second_scale: Optional[float] = None,
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _ConePrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            second_scale,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
-        self.radius = radius
-
-    def sdf2d_base(self, X, Y):
-        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
-
-
 class StarPrism(_PrismBase):
     def __init__(
         self,
@@ -580,6 +460,7 @@ class StarPrism(_PrismBase):
         device: torch.device,
         center=None,
         transform=False,
+        radius: Optional[float] = None,
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
@@ -589,13 +470,15 @@ class StarPrism(_PrismBase):
         _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
             w = random.uniform(0.2, 0.7)
         if seed is None:
             seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.star_base.sdf2d_base(X, Y)
@@ -608,6 +491,7 @@ class ConvexStarPrism(_ConvexPrismBase):
         device: torch.device,
         center=None,
         transform=False,
+        radius: Optional[float] = None,
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
@@ -630,13 +514,15 @@ class ConvexStarPrism(_ConvexPrismBase):
         )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
             w = random.uniform(0.2, 0.7)
         if seed is None:
             seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.star_base.sdf2d_base(X, Y)
@@ -649,6 +535,7 @@ class ConcaveStarPrism(_ConcavePrismBase):
         device: torch.device,
         center=None,
         transform=False,
+        radius: Optional[float] = None,
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
@@ -671,13 +558,15 @@ class ConcaveStarPrism(_ConcavePrismBase):
         )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
             w = random.uniform(0.2, 0.7)
         if seed is None:
             seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.star_base.sdf2d_base(X, Y)
@@ -690,6 +579,7 @@ class ConeStarPrism(_ConePrismBase):
         device: torch.device,
         center=None,
         transform=False,
+        radius: Optional[float] = None,
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
@@ -710,13 +600,15 @@ class ConeStarPrism(_ConePrismBase):
         )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
             w = random.uniform(0.2, 0.7)
         if seed is None:
             seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.star_base.sdf2d_base(X, Y)
@@ -729,6 +621,7 @@ class PyramidStarPrism(_PyramidPrismBase):
         device: torch.device,
         center=None,
         transform=False,
+        radius: Optional[float] = None,
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
@@ -746,14 +639,13 @@ class PyramidStarPrism(_PyramidPrismBase):
             seed,
         )
         D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
             w = random.uniform(0.2, 0.7)
         if seed is None:
             seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.star_base.sdf2d_base(X, Y)

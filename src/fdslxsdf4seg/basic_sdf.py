@@ -3,7 +3,13 @@ from typing import List, Optional
 
 import torch
 
-from fdslxsdf4seg.sdf_object import SDFObject, _PrismBase
+from fdslxsdf4seg.sdf_object import (
+    SDFObject,
+    _ConcavePrismBase,
+    _ConePrismBase,
+    _ConvexPrismBase,
+    _PrismBase,
+)
 
 
 class Sphere(SDFObject):
@@ -129,6 +135,126 @@ class Cylinder(_PrismBase):
         seed: Optional[int] = None,
     ):
         _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConvexCylinder(_ConvexPrismBase):
+    """
+    ふくらみ（barrel）。scale が中央（neck）で最大、両端で最小。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConvexPrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConcaveCylinder(_ConcavePrismBase):
+    """
+    くびれ（hourglass）。scale が中央（neck）で最小、両端で最大。
+    Cylinder の Concave と同じ区分線形をスケールに適用。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConcavePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if radius is None:
+            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
+        self.radius = radius
+
+    def sdf2d_base(self, X, Y):
+        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
+
+
+class ConeCylinder(_ConePrismBase):
+    """
+    円錐台。scale が両端で一定、中央で second_scale。
+    Cylinder の線形補間式を踏襲。
+    """
+
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            axis,
+            seed,
+        )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
