@@ -155,7 +155,7 @@ class SDFObject:
         return transformed_coords[0], transformed_coords[1], transformed_coords[2]
 
 
-class _SectorPolygonTorusBase(SDFObject):
+class SectorPolygonTorusBase(SDFObject):
     def __init__(
         self,
         grid_size,
@@ -165,26 +165,30 @@ class _SectorPolygonTorusBase(SDFObject):
         major_r=None,
         minor_r=None,
         n=None,
-        angle=None,
     ):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != 1)
+        if n is None:
+            n = random.randint(3, 8)
         if major_r is None:
             major_r = random.uniform(min(D, H) * 0.1, min(D, H) * 0.3)
         if minor_r is None:
-            minor_r = major_r * random.uniform(0.1, 0.3)
+            lo = 0.03 * perp_min
+            hi = 0.20 * perp_min
+            minor_r = random.uniform(lo, hi)
+        r1 = minor_r
+        r2 = random.uniform(lo, r1)
         self.R = major_r
         self.r = minor_r
-        self.sector_polygon_base = _SectorPolygonBase(
-            radius=minor_r, n=n, angle=angle, device=device
-        )
+        self.sector_polygon_base = _SectorPolygonBase(n=n, r1=r1, r2=r2, device=device)
 
     def _sdf(self, x, y, z):
         q = torch.stack([torch.stack([x, z], dim=0).norm(dim=0) - self.R, y], dim=0)
         return self.sector_polygon_base.sdf2d_base(q[0], q[1])
 
 
-class _StarTorusBase(SDFObject):
+class StarTorusBase(SDFObject):
     def __init__(
         self,
         grid_size,
