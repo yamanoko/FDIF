@@ -5,7 +5,7 @@ from typing import List, Optional
 
 import torch
 
-from fdslxsdf4seg.sdf_2d import Hexagon, _SectorPolygonBase
+from fdslxsdf4seg.sdf_2d import StarBase, _SectorPolygonBase
 
 
 # --- SDFベースクラス ---
@@ -155,38 +155,17 @@ class SDFObject:
         return transformed_coords[0], transformed_coords[1], transformed_coords[2]
 
 
-# --- 各種プリミティブ実装 （ランダム化ロジックをコンストラクタ内に移動） ---
-class Sphere(SDFObject):
+class _SectorPolygonTorusBase(SDFObject):
     def __init__(
         self,
-        grid_size: List[int],
-        device: torch.device,
-        transform=False,
-        center=None,
-        radius=None,
-    ):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        # ランダム化
-        if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.2)
-        # パラメータ設定
-        self.radius = radius
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0)
-        return torch.norm(p, dim=0) - self.radius
-
-
-class Torus(SDFObject):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
+        grid_size,
+        device,
         center=None,
         transform=False,
         major_r=None,
         minor_r=None,
+        n=None,
+        angle=None,
     ):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
@@ -196,70 +175,40 @@ class Torus(SDFObject):
             minor_r = major_r * random.uniform(0.1, 0.3)
         self.R = major_r
         self.r = minor_r
+        self.sector_polygon_base = _SectorPolygonBase(
+            radius=minor_r, n=n, angle=angle, device=device
+        )
 
     def _sdf(self, x, y, z):
-        q = torch.stack([x, z], dim=0).norm(dim=0) - self.R
-        q = torch.stack([q, y], dim=0).norm(dim=0) - self.r
-        return q
+        q = torch.stack([torch.stack([x, z], dim=0).norm(dim=0) - self.R, y], dim=0)
+        return self.sector_polygon_base.sdf2d_base(q[0], q[1])
 
 
-class Cone(SDFObject):
+class _StarTorusBase(SDFObject):
     def __init__(
         self,
-        grid_size: List[int],
-        device: torch.device,
+        grid_size,
+        device,
         center=None,
         transform=False,
-        radius=None,
-        height=None,
+        major_r=None,
+        minor_r=None,
+        n=None,
+        w=None,
     ):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
-        if radius is None:
-            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.2)
-        if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
-        self.radius = radius
-        self.height = height
+        if major_r is None:
+            major_r = random.uniform(min(D, H) * 0.1, min(D, H) * 0.3)
+        if minor_r is None:
+            minor_r = major_r * random.uniform(0.1, 0.3)
+        self.R = major_r
+        self.r = minor_r
+        self.star_base = StarBase(n=n, w=w, radius=minor_r, device=device)
 
     def _sdf(self, x, y, z):
-        p = torch.stack(
-            [
-                torch.stack([x, z], dim=0).norm(dim=0) - self.radius,
-                y + (self.height / 2),
-            ],
-            dim=0,
-        )
-        e = torch.stack(
-            [
-                torch.ones_like(p[0]) * -self.radius,
-                torch.ones_like(p[0]) * self.height,
-            ],
-            dim=0,
-        )
-        q = p - e * torch.clamp(
-            torch.sum(p * e, dim=0) / torch.sum(e * e, dim=0), min=0.0, max=1.0
-        )
-        d = torch.norm(q, dim=0)
-        max_q = torch.max(q, dim=0).values
-        mask = max_q > 0.0
-        min_val = torch.min(torch.stack([d, p[1]], dim=0), dim=0).values
-        return torch.where(mask, d, -min_val)
-
-
-class Octahedron(SDFObject):
-    def __init__(self, grid_size, device, center=None, transform=False, size=None):
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        if size is None:
-            self.size = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.2)
-        else:
-            self.size = size
-
-    def _sdf(self, x, y, z):
-        p = torch.stack([x, y, z], dim=0).abs()
-        m = p.sum(dim=0) - self.size
-        return m * 0.5773502691896257  # 1/sqrt(3)
+        q = torch.stack([torch.stack([x, z], dim=0).norm(dim=0) - self.R, y], dim=0)
+        return self.star_base.sdf2d_base(q[0], q[1])
 
 
 class _RevolutionBase(SDFObject):
@@ -286,6 +235,31 @@ class _RevolutionBase(SDFObject):
         elif self.axis == 1:
             q = torch.stack([x, z], dim=0).norm(dim=0) - self.distance
             return self.sdf2d_base(q, y)
+
+
+class _StarRevolutionBase(_RevolutionBase):
+    def __init__(
+        self,
+        grid_size,
+        device,
+        center=None,
+        transform=False,
+        axis=1,
+        distance=None,
+        radius=None,
+        n=None,
+        w=None,
+    ):
+        D, H, W = grid_size
+        if radius is None:
+            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.1)
+        if distance is None:
+            distance = random.uniform(0.0, radius * 0.5)
+        super().__init__(grid_size, device, center, transform, axis, distance)
+        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.star_base.sdf2d_base(X, Y)
 
 
 class _PrismBase(SDFObject):
@@ -475,33 +449,6 @@ class _PyramidPrismBase(_ConePrismBase):
         )
 
 
-class Cylinder(_PrismBase):
-    """
-    一定スケールの押し出し（通常のプリズム）
-    """
-
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius=None,
-        height: Optional[float] = None,
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
-        self.radius = radius
-
-    def sdf2d_base(self, X, Y):
-        return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
-
-
 class ConvexCylinder(_ConvexPrismBase):
     """
     ふくらみ（barrel）。scale が中央（neck）で最大、両端で最小。
@@ -622,14 +569,15 @@ class ConeCylinder(_ConePrismBase):
         return torch.norm(torch.stack([X, Y], dim=0), dim=0) - self.radius
 
 
-class HexagonalPrism(_PrismBase):
+class StarPrism(_PrismBase):
     def __init__(
         self,
         grid_size: List[int],
         device: torch.device,
         center=None,
         transform=False,
-        radius=None,
+        n: Optional[int] = None,
+        w: Optional[float] = None,
         height: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
@@ -637,13 +585,174 @@ class HexagonalPrism(_PrismBase):
         _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.03 * perp_min, 0.20 * perp_min)
-        self.radius = radius
-        self.hex_base = Hexagon(radius=radius, device=device)
+        if n is None:
+            n = random.randint(5, 10)
+        if w is None:
+            w = random.uniform(0.2, 0.7)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
 
     def sdf2d_base(self, X, Y):
-        return self.hex_base.sdf2d_base(X, Y)
+        return self.star_base.sdf2d_base(X, Y)
+
+
+class ConvexStarPrism(_ConvexPrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        n: Optional[int] = None,
+        w: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConvexPrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if n is None:
+            n = random.randint(5, 10)
+        if w is None:
+            w = random.uniform(0.2, 0.7)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.star_base.sdf2d_base(X, Y)
+
+
+class ConcaveStarPrism(_ConcavePrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        n: Optional[int] = None,
+        w: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConcavePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            neck,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if n is None:
+            n = random.randint(5, 10)
+        if w is None:
+            w = random.uniform(0.2, 0.7)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.star_base.sdf2d_base(X, Y)
+
+
+class ConeStarPrism(_ConePrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        n: Optional[int] = None,
+        w: Optional[float] = None,
+        height: Optional[float] = None,
+        second_scale: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _ConePrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if n is None:
+            n = random.randint(5, 10)
+        if w is None:
+            w = random.uniform(0.2, 0.7)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.star_base.sdf2d_base(X, Y)
+
+
+class PyramidStarPrism(_PyramidPrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        n: Optional[int] = None,
+        w: Optional[float] = None,
+        height: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _PyramidPrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if n is None:
+            n = random.randint(5, 10)
+        if w is None:
+            w = random.uniform(0.2, 0.7)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.star_base = StarBase(n=n, w=w, radius=0.2 * perp_min, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.star_base.sdf2d_base(X, Y)
 
 
 class SectorPolygonPrism(_PrismBase):
@@ -689,10 +798,56 @@ class SectorPolygonPrism(_PrismBase):
         return self.poly_base.sdf2d_base(X, Y)
 
 
-class ConcaveSectorPolygonPrism(_ConcavePrismBase):
+class PyramidSectorPolygonPrism(_PyramidPrismBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        n: Optional[int] = None,
+        r1: Optional[float] = None,
+        r2: Optional[float] = None,
+        height: Optional[float] = None,
+        axis: int = 2,
+        seed: Optional[int] = None,
+    ):
+        _PyramidPrismBase.__init__(
+            self,
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            axis,
+            seed,
+        )
+        D, H, W = grid_size
+        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
+        if n is None:
+            n = random.randint(6, 16)
+        if r1 is None or r2 is None:
+            lo = 0.03 * perp_min
+            hi = 0.20 * perp_min
+            if r1 is None and r2 is None:
+                r1 = random.uniform(lo, hi)
+                r2 = random.uniform(lo, hi)
+            elif r1 is None:
+                r1 = random.uniform(lo, min(hi, r2))
+            else:
+                r2 = random.uniform(max(lo, r1), hi)
+        if seed is None:
+            seed = random.randint(0, 1 << 30)
+        self.poly_base = _SectorPolygonBase(n=n, r1=r1, r2=r2, seed=seed, device=device)
+
+    def sdf2d_base(self, X, Y):
+        return self.poly_base.sdf2d_base(X, Y)
+
+
+class ConeSectorPolygonPrism(_ConePrismBase):
     """
-    くびれ（hourglass）。scale が中央（neck）で最小、両端で最大。
-    Cylinder の Concave と同じ区分線形をスケールに適用。
+    コーン（線形スケール）：下端(-h)で scale=1、上端(+h)で second_scale。
+    second_scale <1 なら先細り、>1 なら先広がり。
     """
 
     def __init__(
@@ -705,12 +860,11 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
         r1: Optional[float] = None,
         r2: Optional[float] = None,
         height: Optional[float] = None,
-        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
-        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        second_scale: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _ConcavePrismBase.__init__(
+        _ConePrismBase.__init__(
             self,
             grid_size,
             device,
@@ -718,7 +872,6 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
             transform,
             height,
             second_scale,
-            neck,
             axis,
             seed,
         )
@@ -802,10 +955,10 @@ class ConvexSectorPolygonPrism(_ConvexPrismBase):
         return self.poly_base.sdf2d_base(X, Y)
 
 
-class ConeSectorPolygonPrism(_ConePrismBase):
+class ConcaveSectorPolygonPrism(_ConcavePrismBase):
     """
-    コーン（線形スケール）：下端(-h)で scale=1、上端(+h)で second_scale。
-    second_scale <1 なら先細り、>1 なら先広がり。
+    くびれ（hourglass）。scale が中央（neck）で最小、両端で最大。
+    Cylinder の Concave と同じ区分線形をスケールに適用。
     """
 
     def __init__(
@@ -818,11 +971,12 @@ class ConeSectorPolygonPrism(_ConePrismBase):
         r1: Optional[float] = None,
         r2: Optional[float] = None,
         height: Optional[float] = None,
-        second_scale: Optional[float] = None,
+        second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
+        neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _ConePrismBase.__init__(
+        _ConcavePrismBase.__init__(
             self,
             grid_size,
             device,
@@ -830,6 +984,7 @@ class ConeSectorPolygonPrism(_ConePrismBase):
             transform,
             height,
             second_scale,
+            neck,
             axis,
             seed,
         )
@@ -855,1064 +1010,3 @@ class ConeSectorPolygonPrism(_ConePrismBase):
 
     def sdf2d_base(self, X, Y):
         return self.poly_base.sdf2d_base(X, Y)
-
-
-class PyramidSectorPolygonPrism(_PyramidPrismBase):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        n: Optional[int] = None,
-        r1: Optional[float] = None,
-        r2: Optional[float] = None,
-        height: Optional[float] = None,
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _PyramidPrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if n is None:
-            n = random.randint(6, 16)
-        if r1 is None or r2 is None:
-            lo = 0.03 * perp_min
-            hi = 0.20 * perp_min
-            if r1 is None and r2 is None:
-                r1 = random.uniform(lo, hi)
-                r2 = random.uniform(lo, hi)
-            elif r1 is None:
-                r1 = random.uniform(lo, min(hi, r2))
-            else:
-                r2 = random.uniform(max(lo, r1), hi)
-        if seed is None:
-            seed = random.randint(0, 1 << 30)
-        self.poly_base = _SectorPolygonBase(n=n, r1=r1, r2=r2, seed=seed, device=device)
-
-    def sdf2d_base(self, X, Y):
-        return self.poly_base.sdf2d_base(X, Y)
-
-
-class TrianglePrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class SquarePrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=4,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class PentagonPrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=5,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HexagonPrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=6,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HeptagonPrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=7,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class OctagonPrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=8,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class NonagonPrism(SectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=9,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class TriangleConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class SquareConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=4,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class PentagonConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=5,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HexagonConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=6,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HeptagonConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=7,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class OctagonConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=8,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class NonagonConvexPrism(ConvexSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # > 1.0 推奨（ふくらみ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=9,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class TriangleConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class SquareConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=4,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class PentagonConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=5,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HexagonConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=6,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HeptagonConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=7,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class OctagonConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=8,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class NonagonConcavePrism(ConcaveSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,  # < 1.0 推奨（くびれ）
-        neck=None,  # 中央からのバイアス位置 [-h, h]
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=9,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            neck=neck,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class TriangleConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class SquareConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=4,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class PentagonConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=5,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HexagonConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=6,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HeptagonConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=7,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class OctagonConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=8,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class NonagonConePrism(ConeSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        second_scale=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=9,
-            r1=r1,
-            r2=r2,
-            height=height,
-            second_scale=second_scale,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class TrianglePyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class Pyramid(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=4,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class PentagonPyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=5,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HexagonPyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=6,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class HeptagonPyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=7,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class OctagonPyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=8,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )
-
-
-class NonagonPyramidPrism(PyramidSectorPolygonPrism):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        r1=None,
-        r2=None,
-        height=None,
-        axis=2,
-        seed=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=9,
-            r1=r1,
-            r2=r2,
-            height=height,
-            axis=axis,
-            seed=seed,
-        )

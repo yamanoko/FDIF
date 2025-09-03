@@ -5,29 +5,29 @@ from typing import Optional
 import torch
 
 
-class Hexagon:
-    def __init__(self, radius=None, device=None, dtype=torch.float32):
+class StarBase:
+    def __init__(self, radius=None, n=None, w=None, device=None, dtype=torch.float32):
         self.r = 1.0 if radius is None else float(radius)
         self.device = device
         self.dtype = dtype
+        self.n = 5 if n is None else max(3, int(n))
+        self.w = random.uniform(0.1, 0.7) if w is None else float(w)
 
     def sdf2d_base(self, x, y):
-        k = torch.tensor(
-            [-0.866025404, 0.5, 0.577350269], device=self.device, dtype=self.dtype
-        )  # (-sqrt(3)/2,1/2,sqrt(1/3))
-        p = torch.abs(torch.stack([x, y], dim=0))  # (2,N)
-        p = p - 2.0 * torch.minimum(
-            k[:2].unsqueeze(0) @ p,
-            torch.zeros_like(p, device=self.device, dtype=self.dtype),
-        ) * k[:2].unsqueeze(1)  # (2,N)
-        p = p - torch.stack(
-            [
-                torch.clamp(p[0], -self.r * k[2], self.r * k[2]),
-                torch.ones_like(p[1]) * self.r,
-            ],
-            dim=0,
-        )
-        return torch.norm(p, dim=0) * torch.sign(p[1])  # (N,)
+        m = self.n + self.w * (2.0 - self.n)
+        an = 3.1415927 / self.n
+        en = 3.1415927 / m
+        racs = self.r * torch.tensor([[torch.cos(an)], [torch.sin(an)]])
+        ecs = torch.tensor([[torch.cos(en)], [torch.sin(en)]])
+        x = torch.abs(x)
+        p = torch.stack([x, y], dim=0)  # (2,N)
+        bn = torch.remainder(torch.atan2(y, x), 2.0 * an) - an
+        p = p.norm(dim=0) * torch.stack(
+            [torch.cos(bn), torch.abs(torch.sin(bn))], dim=0
+        )  # (2,N)
+        p = p - racs
+        p += ecs * torch.clamp(-ecs.t() @ p, min=0.0, max=racs[1] / ecs[1])
+        return torch.sign(p[0]) * p.norm(dim=0)  # (N,)
 
 
 class _SectorPolygonBase:  # SDFObject にミックスインして使う内部基底
