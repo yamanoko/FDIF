@@ -177,6 +177,9 @@ class SectorPolygonTorusBase(SDFObject):
             lo = 0.03 * perp_min
             hi = 0.20 * perp_min
             minor_r = random.uniform(lo, hi)
+
+        # lo変数の定義をminor_rより前に移動
+        lo = 0.03 * perp_min
         r1 = minor_r
         r2 = random.uniform(lo, r1)
         self.R = major_r
@@ -184,8 +187,15 @@ class SectorPolygonTorusBase(SDFObject):
         self.sector_polygon_base = _SectorPolygonBase(n=n, r1=r1, r2=r2, device=device)
 
     def _sdf(self, x, y, z):
-        q = torch.stack([torch.stack([x, z], dim=0).norm(dim=0) - self.R, y], dim=0)
-        return self.sector_polygon_base.sdf2d_base(q[0], q[1])
+        # 座標を平坦化してからトーラス座標系に変換
+        shp = x.shape
+        xf, yf, zf = x.reshape(-1), y.reshape(-1), z.reshape(-1)
+
+        # トーラス座標系（主軸からの距離 - R、y軸方向の距離）
+        q_dist = torch.stack([xf, zf], dim=0).norm(dim=0) - self.R
+        result = self.sector_polygon_base.sdf2d_base(q_dist, yf)
+
+        return result.view(*shp)
 
 
 class StarTorusBase(SDFObject):
@@ -211,8 +221,15 @@ class StarTorusBase(SDFObject):
         self.star_base = StarBase(n=n, w=w, radius=minor_r, device=device)
 
     def _sdf(self, x, y, z):
-        q = torch.stack([torch.stack([x, z], dim=0).norm(dim=0) - self.R, y], dim=0)
-        return self.star_base.sdf2d_base(q[0], q[1])
+        # 座標を平坦化してからトーラス座標系に変換
+        shp = x.shape
+        xf, yf, zf = x.reshape(-1), y.reshape(-1), z.reshape(-1)
+
+        # トーラス座標系（主軸からの距離 - R、y軸方向の距離）
+        q_dist = torch.stack([xf, zf], dim=0).norm(dim=0) - self.R
+        result = self.star_base.sdf2d_base(q_dist, yf)
+
+        return result.view(*shp)
 
 
 class _RevolutionBase(SDFObject):
@@ -233,12 +250,18 @@ class _RevolutionBase(SDFObject):
         raise NotImplementedError
 
     def _sdf(self, x, y, z):
+        # 座標を平坦化してから回転体座標系に変換
+        shp = x.shape
+        xf, yf, zf = x.reshape(-1), y.reshape(-1), z.reshape(-1)
+
         if self.axis == 0:
-            q = torch.stack([y, z], dim=0).norm(dim=0) - self.distance
-            return self.sdf2d_base(x, q)
+            q = torch.stack([yf, zf], dim=0).norm(dim=0) - self.distance
+            result = self.sdf2d_base(xf, q)
         elif self.axis == 1:
-            q = torch.stack([x, z], dim=0).norm(dim=0) - self.distance
-            return self.sdf2d_base(q, y)
+            q = torch.stack([xf, zf], dim=0).norm(dim=0) - self.distance
+            result = self.sdf2d_base(q, yf)
+
+        return result.view(*shp)
 
 
 class _StarRevolutionBase(_RevolutionBase):

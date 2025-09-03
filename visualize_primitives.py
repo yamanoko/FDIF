@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 各プリミティブの可視化を生成・保存するスクリプト
+リファクタリング後の新しい実装に対応
 """
 
 import os
@@ -8,43 +9,108 @@ import os
 import numpy as np
 import torch
 
+# 基本的なプリミティブ
+from src.fdslxsdf4seg.basic_sdf import (
+    ConcaveCylinder,
+    Cone,
+    ConeCylinder,
+    ConvexCylinder,
+    Cylinder,
+    Octahedron,
+    Sphere,
+    Torus,
+)
 from src.fdslxsdf4seg.generate_sdf_dataset import (
     visualize_sample,
 )
+
+# Revolution系
+from src.fdslxsdf4seg.revolution.star_revolution import (
+    FiveStarRevolution,
+    FourStarRevolution,
+    ThreeStarRevolution,
+)
+
+# SDF Object ベースクラス
 from src.fdslxsdf4seg.sdf_object import (
-    ConcaveCylinder,
-    ConcaveSectorPolygonPrism,
-    Cone,
-    ConeCylinder,
-    ConeSectorPolygonPrism,
-    ConvexCylinder,
-    ConvexSectorPolygonPrism,
-    Cylinder,
-    HeptagonPrism,
-    HeptagonPyramidPrism,
-    HexagonalPrism,
-    HexagonPrism,
+    SectorPolygonPrism,
+)
+
+# 凹セクターポリゴンプリズム
+from src.fdslxsdf4seg.sector_polygon_prism.concave_sector_polygon_prism import (
+    SquareConcavePrism,
+    TriangleConcavePrism,
+)
+
+# コーンセクターポリゴンプリズム
+from src.fdslxsdf4seg.sector_polygon_prism.cone_sector_polygon_prism import (
+    HexagonConePrism,
+    PentagonConePrism,
+    SquareConePrism,
+    TriangleConePrism,
+)
+
+# 凸セクターポリゴンプリズム
+from src.fdslxsdf4seg.sector_polygon_prism.convex_sector_polygon_prism import (
+    SquareConvexPrism,
+    TriangleConvexPrism,
+)
+
+# ピラミッドセクターポリゴンプリズム
+from src.fdslxsdf4seg.sector_polygon_prism.pyramid_sector_polygon_prism import (
     HexagonPyramidPrism,
-    NonagonPrism,
-    NonagonPyramidPrism,
-    OctagonPrism,
-    OctagonPyramidPrism,
-    Octahedron,
-    PentagonPrism,
     PentagonPyramidPrism,
     Pyramid,
-    PyramidSectorPolygonPrism,
-    SectorPolygonPrism,
-    Sphere,
-    SquarePrism,
-    Torus,
-    TrianglePrism,
     TrianglePyramidPrism,
 )
 
+# セクターポリゴンプリズム
+from src.fdslxsdf4seg.sector_polygon_prism.sector_polygon_prism import (
+    HeptagonPrism,
+    HexagonPrism,
+    NonagonPrism,
+    OctagonPrism,
+    PentagonPrism,
+    SquarePrism,
+    TrianglePrism,
+)
 
-def generate_primitive_visualizations(output_dir="visualize_output"):
-    """各プリミティブを個別に生成し、可視化結果を保存する"""
+# スタープリズム
+from src.fdslxsdf4seg.star_polygon_prism.star_prism import (
+    FiveStarPrism,
+    SixStarPrism,
+)
+
+# 凸スタープリズム
+# 凹スタープリズム
+# コーンスタープリズム
+# ピラミッドスタープリズム
+# トーラス系
+from src.fdslxsdf4seg.torus.sector_polygon_torus import (
+    HeptagonTorus,
+    HexagonTorus,
+    NonagonTorus,
+    OctagonTorus,
+    PentagonTorus,
+    SquareTorus,
+)
+from src.fdslxsdf4seg.torus.star_torus import (
+    EightStarTorus,
+    FiveStarTorus,
+    SevenStarTorus,
+    SixStarTorus,
+)
+
+
+def generate_primitive_visualizations(
+    output_dir="visualize_output", primitive_type="all"
+):
+    """各プリミティブを個別に生成し、可視化結果を保存する
+
+    Args:
+        output_dir: 出力ディレクトリ
+        primitive_type: 生成するプリミティブのタイプ ("all", "star", "basic", "polygon")
+    """
 
     # 出力ディレクトリを作成
     os.makedirs(output_dir, exist_ok=True)
@@ -59,14 +125,9 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
     xs = torch.linspace(0, grid_size[2] - 1, grid_size[2], dtype=torch.float32)
     Z, Y, X = torch.meshgrid(zs, ys, xs, indexing="ij")
 
-    # テスト対象のプリミティブ
-    primitives = [
+    # 基本プリミティブ
+    basic_primitives = [
         ("Sphere", Sphere, {"center": (32.0, 32.0, 32.0), "radius": 16.0}),
-        (
-            "Cylinder",
-            Cylinder,
-            {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
-        ),
         (
             "Torus",
             Torus,
@@ -83,25 +144,9 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
             {"center": (32.0, 32.0, 32.0), "size": 15.0},
         ),
         (
-            "Pyramid",
-            Pyramid,
-            {"center": (32.0, 32.0, 32.0), "r1": 8.0, "r2": 12.0, "height": 20.0},
-        ),
-        (
-            "HexagonalPrism",
-            HexagonalPrism,
+            "Cylinder",
+            Cylinder,
             {"center": (32.0, 32.0, 32.0), "radius": 12.0, "height": 32.0},
-        ),
-        (
-            "ConcaveCylinder",
-            ConcaveCylinder,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "radius": 12.0,
-                "height": 32.0,
-                "second_scale": 0.5,
-                "neck": 5.0,
-            },
         ),
         (
             "ConvexCylinder",
@@ -115,6 +160,17 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
             },
         ),
         (
+            "ConcaveCylinder",
+            ConcaveCylinder,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "height": 32.0,
+                "second_scale": 0.5,
+                "neck": 5.0,
+            },
+        ),
+        (
             "ConeCylinder",
             ConeCylinder,
             {
@@ -124,7 +180,10 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "second_scale": 0.5,
             },
         ),
-        # SectorPolygonPrism の基本版
+    ]
+
+    # セクターポリゴンプリズム
+    sector_polygon_primitives = [
         (
             "SectorPolygonPrism",
             SectorPolygonPrism,
@@ -137,7 +196,6 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "seed": 42,
             },
         ),
-        # 多角形プリズムの子クラス
         (
             "TrianglePrism",
             TrianglePrism,
@@ -215,62 +273,21 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "seed": 42,
             },
         ),
-        # バリエーション付きプリズム
+    ]
+
+    # ピラミッドプリズム
+    pyramid_primitives = [
         (
-            "ConcaveSectorPolygonPrism",
-            ConcaveSectorPolygonPrism,
+            "Pyramid",
+            Pyramid,
             {
                 "center": (32.0, 32.0, 32.0),
-                "n": 6,
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 32.0,
-                "second_scale": 0.5,
-                "neck": 0.0,
-                "seed": 42,
-            },
-        ),
-        (
-            "ConvexSectorPolygonPrism",
-            ConvexSectorPolygonPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "n": 7,
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 32.0,
-                "second_scale": 1.5,
-                "neck": 0.0,
-                "seed": 42,
-            },
-        ),
-        (
-            "ConeSectorPolygonPrism",
-            ConeSectorPolygonPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "n": 5,
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 32.0,
-                "second_scale": 0.3,
-                "seed": 42,
-            },
-        ),
-        # PyramidPrismの基本版
-        (
-            "PyramidSectorPolygonPrism",
-            PyramidSectorPolygonPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "n": 6,
                 "r1": 8.0,
                 "r2": 12.0,
                 "height": 25.0,
                 "seed": 42,
             },
         ),
-        # 多角形ピラミッドプリズムの子クラス
         (
             "TrianglePyramidPrism",
             TrianglePyramidPrism,
@@ -304,81 +321,368 @@ def generate_primitive_visualizations(output_dir="visualize_output"):
                 "seed": 42,
             },
         ),
+    ]
+
+    # コーンプリズム
+    cone_primitives = [
         (
-            "HeptagonPyramidPrism",
-            HeptagonPyramidPrism,
+            "TriangleConePrism",
+            TriangleConePrism,
             {
                 "center": (32.0, 32.0, 32.0),
                 "r1": 8.0,
                 "r2": 12.0,
-                "height": 25.0,
+                "height": 32.0,
+                "second_scale": 0.3,
                 "seed": 42,
             },
         ),
         (
-            "OctagonPyramidPrism",
-            OctagonPyramidPrism,
+            "SquareConePrism",
+            SquareConePrism,
             {
                 "center": (32.0, 32.0, 32.0),
                 "r1": 8.0,
                 "r2": 12.0,
-                "height": 25.0,
+                "height": 32.0,
+                "second_scale": 0.3,
                 "seed": 42,
             },
         ),
         (
-            "NonagonPyramidPrism",
-            NonagonPyramidPrism,
+            "PentagonConePrism",
+            PentagonConePrism,
             {
                 "center": (32.0, 32.0, 32.0),
                 "r1": 8.0,
                 "r2": 12.0,
-                "height": 25.0,
+                "height": 32.0,
+                "second_scale": 0.3,
+                "seed": 42,
+            },
+        ),
+        (
+            "HexagonConePrism",
+            HexagonConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 0.3,
                 "seed": 42,
             },
         ),
     ]
 
-    print(f"Generating primitive visualizations in '{output_dir}'...")
+    # 凸プリズム
+    convex_primitives = [
+        (
+            "TriangleConvexPrism",
+            TriangleConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "SquareConvexPrism",
+            SquareConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+    ]
 
-    for name, PrimClass, params in primitives:
+    # 凹プリズム
+    concave_primitives = [
+        (
+            "TriangleConcavePrism",
+            TriangleConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "SquareConcavePrism",
+            SquareConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 32.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "seed": 42,
+            },
+        ),
+    ]
+
+    # スタープリズム
+    star_primitives = [
+        (
+            "FiveStarPrism",
+            FiveStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+        (
+            "SixStarPrism",
+            SixStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 32.0,
+                "seed": 42,
+            },
+        ),
+    ]
+
+    # トーラスプリミティブ
+    torus_primitives = [
+        # セクターポリゴントーラス
+        (
+            "SquareTorus",
+            SquareTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        (
+            "PentagonTorus",
+            PentagonTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        (
+            "HexagonTorus",
+            HexagonTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        (
+            "HeptagonTorus",
+            HeptagonTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        (
+            "OctagonTorus",
+            OctagonTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        (
+            "NonagonTorus",
+            NonagonTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+            },
+        ),
+        # スタートーラス
+        (
+            "FiveStarTorus",
+            FiveStarTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+                "w": 0.5,
+            },
+        ),
+        (
+            "SixStarTorus",
+            SixStarTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+                "w": 0.5,
+            },
+        ),
+        (
+            "SevenStarTorus",
+            SevenStarTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+                "w": 0.5,
+            },
+        ),
+        (
+            "EightStarTorus",
+            EightStarTorus,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "major_r": 20.0,
+                "minor_r": 8.0,
+                "w": 0.5,
+            },
+        ),
+    ]
+
+    # Revolution（回転体）プリミティブ
+    revolution_primitives = [
+        (
+            "ThreeStarRevolution",
+            ThreeStarRevolution,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 8.0,
+                "w": 0.5,
+            },
+        ),
+        (
+            "FourStarRevolution",
+            FourStarRevolution,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 8.0,
+                "w": 0.5,
+            },
+        ),
+        (
+            "FiveStarRevolution",
+            FiveStarRevolution,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 8.0,
+                "w": 0.5,
+            },
+        ),
+    ]
+
+    # プリミティブタイプに応じて選択
+    if primitive_type == "star":
+        selected_primitives = star_primitives
+        print(
+            f"Generating {len(selected_primitives)} star primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "basic":
+        selected_primitives = basic_primitives
+        print(
+            f"Generating {len(selected_primitives)} basic primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "polygon":
+        selected_primitives = (
+            sector_polygon_primitives
+            + pyramid_primitives
+            + cone_primitives
+            + convex_primitives
+            + concave_primitives
+        )
+        print(
+            f"Generating {len(selected_primitives)} polygon primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "torus":
+        selected_primitives = torus_primitives
+        print(
+            f"Generating {len(selected_primitives)} torus primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "revolution":
+        selected_primitives = revolution_primitives
+        print(
+            f"Generating {len(selected_primitives)} revolution primitive visualizations in '{output_dir}'..."
+        )
+    else:  # "all" or default
+        selected_primitives = (
+            basic_primitives
+            + sector_polygon_primitives
+            + pyramid_primitives
+            + cone_primitives
+            + convex_primitives
+            + concave_primitives
+            + star_primitives
+            + torus_primitives
+            + revolution_primitives
+        )
+        print(
+            f"Generating {len(selected_primitives)} primitive visualizations in '{output_dir}'..."
+        )
+
+    for name, PrimClass, params in selected_primitives:
         print(f"Processing {name}...")
 
-        # ランダムシードを固定（変換を無効化）
-        torch.manual_seed(42)
-        np.random.seed(42)
-        import random
+        try:
+            # ランダムシードを固定（変換を無効化）
+            torch.manual_seed(20)
+            np.random.seed(20)
+            import random
 
-        random.seed(42)
+            random.seed(20)
 
-        # プリミティブを生成
-        primitive = PrimClass(grid_size, device, **params)
+            # プリミティブを生成
+            primitive = PrimClass(grid_size, device, **params)
 
-        # SDFを計算
-        sdf = primitive.sdf(X, Y, Z)
+            # SDFを計算
+            sdf = primitive.sdf(X, Y, Z)
 
-        # SDFを可視化用に変換（0-128の範囲）
-        sdf_vis = 128.0 / (torch.pow(torch.abs(sdf), 2.0) + 1.0)
-        sdf_vis = torch.clamp(sdf_vis, 0.0, 128.0).to(torch.uint8)
+            # SDFを可視化用に変換（0-128の範囲）
+            sdf_vis = 128.0 / (torch.pow(torch.abs(sdf), 2.0) + 1.0)
+            sdf_vis = torch.clamp(sdf_vis, 0.0, 128.0).to(torch.uint8)
 
-        # セグメンテーションマスクを作成（オブジェクトIDは1）
-        mask = (sdf <= 0).to(torch.uint8)
+            # セグメンテーションマスクを作成（オブジェクトIDは1）
+            mask = (sdf <= 0).to(torch.uint8)
 
-        # NumPy配列に変換
-        sdf_np = sdf_vis.cpu().numpy()
-        mask_np = mask.cpu().numpy()
+            # NumPy配列に変換
+            sdf_np = sdf_vis.cpu().numpy()
+            mask_np = mask.cpu().numpy()
 
-        # 可視化を実行
-        output_file = os.path.join(output_dir, f"{name.lower()}_visualization.png")
-        visualize_sample((sdf_np, mask_np), output_file)
+            # 可視化を実行
+            output_file = os.path.join(output_dir, f"{name.lower()}_visualization.png")
+            visualize_sample((sdf_np, mask_np), output_file)
 
-        # 統計情報を表示
-        inside_count = (sdf < 0).sum().item()
-        outside_count = (sdf > 0).sum().item()
+            # 統計情報を表示
+            inside_count = (sdf < 0).sum().item()
+            outside_count = (sdf > 0).sum().item()
 
-        print(f"  {name}: inside={inside_count}, outside={outside_count}")
-        print(f"  Saved: {output_file}")
-        print(f"  Slice: {output_file.replace('.png', '_slice.png')}")
+            print(f"  {name}: inside={inside_count}, outside={outside_count}")
+            print(f"  Saved: {output_file}")
+            print(f"  Slice: {output_file.replace('.png', '_slice.png')}")
+
+        except Exception as e:
+            print(f"  Error processing {name}: {e}")
+            continue
 
     print(f"\nAll visualizations saved in '{output_dir}' directory!")
 
@@ -442,6 +746,13 @@ if __name__ == "__main__":
         help="Generate individual primitive visualizations",
     )
     parser.add_argument(
+        "--primitive_type",
+        type=str,
+        choices=["all", "star", "basic", "polygon", "torus", "revolution"],
+        default="all",
+        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution)",
+    )
+    parser.add_argument(
         "--dataset", action="store_true", help="Generate dataset sample visualizations"
     )
     parser.add_argument(
@@ -468,7 +779,7 @@ if __name__ == "__main__":
         exit(1)
 
     if args.primitives:
-        generate_primitive_visualizations(args.output_dir)
+        generate_primitive_visualizations(args.output_dir, args.primitive_type)
 
     if args.dataset:
         generate_dataset_samples(args.output_dir, args.num_samples)

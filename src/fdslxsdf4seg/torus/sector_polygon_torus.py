@@ -5,27 +5,6 @@ import torch
 from fdslxsdf4seg.sdf_object import SectorPolygonTorusBase
 
 
-class TriangleTorus(SectorPolygonTorusBase):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        major_r=None,
-        minor_r=None,
-    ):
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            n=3,
-            major_r=major_r,
-            minor_r=minor_r,
-        )
-
-
 class SquareTorus(SectorPolygonTorusBase):
     def __init__(
         self,

@@ -10,23 +10,40 @@ class StarBase:
         self.r = 1.0 if radius is None else float(radius)
         self.device = device
         self.dtype = dtype
-        self.n = 5 if n is None else max(3, int(n))
+        if n is None:
+            n = 5
+        self.n = n
         self.w = random.uniform(0.1, 0.7) if w is None else float(w)
 
     def sdf2d_base(self, x, y):
         m = self.n + self.w * (2.0 - self.n)
         an = 3.1415927 / self.n
         en = 3.1415927 / m
-        racs = self.r * torch.tensor([[torch.cos(an)], [torch.sin(an)]])
-        ecs = torch.tensor([[torch.cos(en)], [torch.sin(en)]])
+
+        # デバイスとdtypeを明示的に指定
+        device = x.device
+        dtype = x.dtype
+
+        # tensorを作成する前にスカラーをtensorに変換
+        an_tensor = torch.tensor(an, device=device, dtype=dtype)
+        en_tensor = torch.tensor(en, device=device, dtype=dtype)
+
+        racs = self.r * torch.tensor(
+            [[torch.cos(an_tensor)], [torch.sin(an_tensor)]], device=device, dtype=dtype
+        )
+        ecs = torch.tensor(
+            [[torch.cos(en_tensor)], [torch.sin(en_tensor)]], device=device, dtype=dtype
+        )
         x = torch.abs(x)
         p = torch.stack([x, y], dim=0)  # (2,N)
-        bn = torch.remainder(torch.atan2(y, x), 2.0 * an) - an
+        bn = torch.remainder(torch.atan2(x, y), 2.0 * an) - an
         p = p.norm(dim=0) * torch.stack(
             [torch.cos(bn), torch.abs(torch.sin(bn))], dim=0
         )  # (2,N)
         p = p - racs
-        p += ecs * torch.clamp(-ecs.t() @ p, min=0.0, max=racs[1] / ecs[1])
+        clamp_max = racs[1] / ecs[1]
+        clamp_val = torch.clamp(-ecs.t() @ p, min=0.0, max=clamp_max.item())
+        p += ecs * clamp_val
         return torch.sign(p[0]) * p.norm(dim=0)  # (N,)
 
 
