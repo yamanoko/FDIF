@@ -703,8 +703,8 @@ def generate_dataset_samples(output_dir="visualize_output", num_samples=5):
     ds = SDFSegmentationDataset(
         grid_size=grid_size,
         num_volumes=num_samples,
-        min_objects=2,
-        max_objects=4,
+        min_objects=20,
+        max_objects=20,
         device=device,
     )
 
