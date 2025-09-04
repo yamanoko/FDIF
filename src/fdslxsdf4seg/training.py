@@ -314,7 +314,7 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
 
         mean_dice_val = np.mean(run_acc.avg).item()
         class_dice_score = (
-            torch.stack(raw_dice_scores, dim=0).mean(dim=0).numpy()
+            torch.stack(raw_dice_scores, dim=0).nan_to_num().mean(dim=0).numpy()
         )  # Already on CPU
 
         # Log evaluation results
