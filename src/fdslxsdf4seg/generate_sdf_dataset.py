@@ -15,8 +15,12 @@ from plotly.subplots import make_subplots
 from torch.utils.data import DataLoader, Dataset
 
 from fdslxsdf4seg.basic_sdf import (
+    ConcaveCylinder,
     Cone,
+    ConeCylinder,
+    ConvexCylinder,
     Cylinder,
+    Octahedron,
     Sphere,
     Torus,
 )
@@ -125,6 +129,8 @@ class SDFSegmentationDataset(Dataset):
         max_objects: int = 5,
         device: torch.device = None,
         primitives: List[str] = None,
+        categories: List[str] = None,
+        num_classes: int = None,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -143,6 +149,10 @@ class SDFSegmentationDataset(Dataset):
             "cylinder": Cylinder,
             "torus": Torus,
             "cone": Cone,
+            "octahedron": Octahedron,
+            "convexcylinder": ConvexCylinder,
+            "concavecylinder": ConcaveCylinder,
+            "conecylinder": ConeCylinder,
             # Revolution objects
             "threestarrevolution": ThreeStarRevolution,
             "fourstarrevolution": FourStarRevolution,
@@ -225,13 +235,155 @@ class SDFSegmentationDataset(Dataset):
             "eightstartorus": EightStarTorus,
         }
 
-        # 使用するプリミティブを選択（デフォルトは全て）
-        if primitives is None:
-            primitives = list(all_primitives.keys())
+        # カテゴリ別のプリミティブマッピング
+        primitive_categories = {
+            "basic": [
+                "sphere",
+                "cylinder",
+                "torus",
+                "cone",
+                "octahedron",
+                "convexcylinder",
+                "concavecylinder",
+                "conecylinder",
+            ],
+            "revolution": [
+                "threestarrevolution",
+                "fourstarrevolution",
+                "fivestarrevolution",
+            ],
+            "sector_polygon_prism": [
+                "triangleprism",
+                "squareprism",
+                "pentagonprism",
+                "hexagonprism",
+                "heptagonprism",
+                "octagonprism",
+                "nonagonprism",
+            ],
+            "pyramid_sector_polygon_prism": [
+                "trianglepyramidprism",
+                "pyramid",
+                "pentagonpyramidprism",
+                "hexagonpyramidprism",
+                "heptagonpyramidprism",
+                "octagonpyramidprism",
+                "nonagonpyramidprism",
+            ],
+            "convex_sector_polygon_prism": [
+                "triangleconvexprism",
+                "squareconvexprism",
+                "pentagonconvexprism",
+                "hexagonconvexprism",
+                "heptagonconvexprism",
+                "octagonconvexprism",
+                "nonagonconvexprism",
+            ],
+            "concave_sector_polygon_prism": [
+                "triangleconcaveprism",
+                "squareconcaveprism",
+                "pentagonconcaveprism",
+                "hexagonconcaveprism",
+                "heptagonconcaveprism",
+                "octagonconcaveprism",
+                "nonagonconcaveprism",
+            ],
+            "cone_sector_polygon_prism": [
+                "triangleconeprism",
+                "squareconeprism",
+                "pentagonconeprism",
+                "hexagonconeprism",
+                "heptagonconeprism",
+                "octagonconeprism",
+                "nonagonconeprism",
+            ],
+            "star_polygon_prism": [
+                "fivestarprism",
+                "sixstarprism",
+                "sevenstarprism",
+                "eightstarprism",
+            ],
+            "star_pyramid_prism": [
+                "fivestarpyramidprism",
+                "sixstarpyramidprism",
+                "sevenstarpyramidprism",
+                "eightstarpyramidprism",
+            ],
+            "star_convex_prism": [
+                "fivestarconvexprism",
+                "sixstarconvexprism",
+                "sevenstarconvexprism",
+                "eightstarconvexprism",
+            ],
+            "star_concave_prism": [
+                "fivestarconcaveprism",
+                "sixstarconcaveprism",
+                "sevenstarconcaveprism",
+                "eightstarconcaveprism",
+            ],
+            "star_cone_prism": [
+                "fivestarconeprism",
+                "sixstarconeprism",
+                "sevenstarconeprism",
+                "eightstarconeprism",
+            ],
+            "torus_variants": [
+                "squaretorus",
+                "pentagontorus",
+                "hexagontorus",
+                "heptagontorus",
+                "octagontorus",
+                "nonagontorus",
+                "fivestartorus",
+                "sixstartorus",
+                "sevenstartorus",
+                "eightstartorus",
+            ],
+        }
+
+        # 使用するプリミティブを選択（カテゴリまたは個別指定）
+        if categories is not None:
+            # カテゴリが指定された場合、該当するプリミティブを収集
+            selected_primitive_names = []
+            for category in categories:
+                if category in primitive_categories:
+                    selected_primitive_names.extend(primitive_categories[category])
+                else:
+                    print(f"Warning: Unknown category '{category}' ignored.")
+
+            # 重複を除去
+            selected_primitive_names = list(set(selected_primitive_names))
+        elif primitives is not None:
+            # 個別のプリミティブが指定された場合
+            selected_primitive_names = primitives
+        else:
+            # デフォルトは全て
+            selected_primitive_names = list(all_primitives.keys())
+
+        # num_classesが指定された場合、ランダムに選択
+        if num_classes is not None and num_classes > 0:
+            if len(selected_primitive_names) > num_classes:
+                # 指定されたクラス数にランダムに削減
+                print(
+                    f"Randomly selecting {num_classes} classes from {len(selected_primitive_names)} available classes."
+                )
+                selected_primitive_names = random.sample(
+                    selected_primitive_names, num_classes
+                )
+            elif len(selected_primitive_names) < num_classes:
+                print(
+                    f"Warning: Requested {num_classes} classes, but only {len(selected_primitive_names)} available. Using all available classes."
+                )
+
+        print(
+            f"Selected primitives ({len(selected_primitive_names)}): {', '.join(sorted(selected_primitive_names))}"
+        )
 
         # 選択されたプリミティブのみを使用
         selected_primitives = [
-            all_primitives[name] for name in primitives if name in all_primitives
+            all_primitives[name]
+            for name in selected_primitive_names
+            if name in all_primitives
         ]
 
         # class_id, primitive_class
@@ -298,6 +450,8 @@ def generate_and_save(
     seed: int = None,
     num_val_samples: int = 0,
     primitives: List[str] = None,
+    categories: List[str] = None,
+    num_classes: int = None,
 ):
     if seed is not None:
         random.seed(seed)
@@ -314,6 +468,8 @@ def generate_and_save(
         min_objects=min_objects,
         max_objects=max_objects,
         primitives=primitives,
+        categories=categories,
+        num_classes=num_classes,
     )
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
@@ -470,6 +626,12 @@ if __name__ == "__main__":
     p.add_argument("--max_objects", type=int, default=5)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument(
+        "--num_classes",
+        type=int,
+        default=None,
+        help="Number of primitive classes to randomly select. If specified, randomly selects this many classes from the available primitives/categories.",
+    )
+    p.add_argument(
         "--primitives",
         nargs="*",
         default=[
@@ -477,6 +639,10 @@ if __name__ == "__main__":
             "cylinder",
             "torus",
             "cone",
+            "octahedron",
+            "convexcylinder",
+            "concavecylinder",
+            "conecylinder",
             "threestarrevolution",
             "fourstarrevolution",
             "fivestarrevolution",
@@ -551,6 +717,10 @@ if __name__ == "__main__":
             "cylinder",
             "torus",
             "cone",
+            "octahedron",
+            "convexcylinder",
+            "concavecylinder",
+            "conecylinder",
             "threestarrevolution",
             "fourstarrevolution",
             "fivestarrevolution",
@@ -623,6 +793,26 @@ if __name__ == "__main__":
         help="Primitive types to use for generation (default: all primitives)",
     )
     p.add_argument(
+        "--categories",
+        nargs="*",
+        choices=[
+            "basic",
+            "revolution",
+            "sector_polygon_prism",
+            "pyramid_sector_polygon_prism",
+            "convex_sector_polygon_prism",
+            "concave_sector_polygon_prism",
+            "cone_sector_polygon_prism",
+            "star_polygon_prism",
+            "star_pyramid_prism",
+            "star_convex_prism",
+            "star_concave_prism",
+            "star_cone_prism",
+            "torus_variants",
+        ],
+        help="Primitive categories to use for generation. If specified, overrides --primitives. Multiple categories can be selected.",
+    )
+    p.add_argument(
         "--num_visualize", type=int, default=0, help="Number of samples to visualize"
     )
     args = p.parse_args()
@@ -643,7 +833,12 @@ if __name__ == "__main__":
         f.write(f"Number of samples: {args.num_samples}\n")
         f.write(f"Min objects per sample: {args.min_objects}\n")
         f.write(f"Max objects per sample: {args.max_objects}\n")
-        f.write(f"Primitives used: {', '.join(args.primitives)}\n")
+        if args.num_classes is not None:
+            f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
+        if args.categories:
+            f.write(f"Categories used: {', '.join(args.categories)}\n")
+        else:
+            f.write(f"Primitives used: {', '.join(args.primitives)}\n")
         if args.seed is not None:
             f.write(f"Seed: {args.seed}\n")
 
@@ -653,7 +848,12 @@ if __name__ == "__main__":
     print(f"  Number of samples: {args.num_samples}")
     print(f"  Min objects per sample: {args.min_objects}")
     print(f"  Max objects per sample: {args.max_objects}")
-    print(f"  Primitives used: {', '.join(args.primitives)}")
+    if args.num_classes is not None:
+        print(f"  Number of classes (randomly selected): {args.num_classes}")
+    if args.categories:
+        print(f"  Categories used: {', '.join(args.categories)}")
+    else:
+        print(f"  Primitives used: {', '.join(args.primitives)}")
     time_start = time.time()
 
     data_output_dir = os.path.join(args.out_dir, "data")
@@ -667,6 +867,8 @@ if __name__ == "__main__":
         max_objects=args.max_objects,
         seed=args.seed,
         primitives=args.primitives,
+        categories=args.categories,
+        num_classes=args.num_classes,
     )
 
     time_end = time.time()
