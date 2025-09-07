@@ -379,6 +379,9 @@ class SDFSegmentationDataset(Dataset):
             f"Selected primitives ({len(selected_primitive_names)}): {', '.join(sorted(selected_primitive_names))}"
         )
 
+        # 選択されたプリミティブ名を保存（ログ出力用）
+        self.selected_primitive_names = selected_primitive_names
+
         # 選択されたプリミティブのみを使用
         selected_primitives = [
             all_primitives[name]
@@ -452,6 +455,7 @@ def generate_and_save(
     primitives: List[str] = None,
     categories: List[str] = None,
     num_classes: int = None,
+    log_file_path: str = None,
 ):
     if seed is not None:
         random.seed(seed)
@@ -471,6 +475,12 @@ def generate_and_save(
         categories=categories,
         num_classes=num_classes,
     )
+
+    # 選択されたプリミティブの詳細情報を表示
+    print(f"Dataset created with {len(ds.primitive_classes)} primitive classes:")
+    for class_id, primitive_class in ds.primitive_classes.items():
+        print(f"  Class {class_id}: {primitive_class.__name__}")
+
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
     data_json = {}
@@ -523,6 +533,18 @@ def generate_and_save(
     with open(data_json_path, "w") as f:
         json.dump(data_json, f, indent=4)
     print(f"Saved dataset metadata to {data_json_path}")
+
+    # 選択されたプリミティブ情報をログファイルに追記
+    if log_file_path and hasattr(ds, "selected_primitive_names"):
+        with open(log_file_path, "a") as f:
+            f.write(
+                f"Actually selected primitives ({len(ds.selected_primitive_names)}): {', '.join(ds.selected_primitive_names)}\n"
+            )
+            f.write("Primitive class ID mapping:\n")
+            for class_id, primitive_class in ds.primitive_classes.items():
+                primitive_name = primitive_class.__name__
+                f.write(f"  {class_id}: {primitive_name}\n")
+
     print("Done.")
 
 
@@ -869,6 +891,7 @@ if __name__ == "__main__":
         primitives=args.primitives,
         categories=args.categories,
         num_classes=args.num_classes,
+        log_file_path=log_file,
     )
 
     time_end = time.time()
