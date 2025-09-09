@@ -2,10 +2,10 @@ from typing import List
 
 import torch
 
-from fdslxsdf4seg.sdf_object import _StarRevolutionBase
+from fdslxsdf4seg.sdf_object import StarRevolutionBase
 
 
-class ThreeStarRevolution(_StarRevolutionBase):
+class ThreeStarRevolution(StarRevolutionBase):
     def __init__(
         self,
         grid_size: List[int],
@@ -28,7 +28,7 @@ class ThreeStarRevolution(_StarRevolutionBase):
         )
 
 
-class FourStarRevolution(_StarRevolutionBase):
+class FourStarRevolution(StarRevolutionBase):
     def __init__(
         self,
         grid_size: List[int],
@@ -51,7 +51,7 @@ class FourStarRevolution(_StarRevolutionBase):
         )
 
 
-class FiveStarRevolution(_StarRevolutionBase):
+class FiveStarRevolution(StarRevolutionBase):
     def __init__(
         self,
         grid_size: List[int],
