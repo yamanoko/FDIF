@@ -29,9 +29,9 @@ class SDFObject:
             # 中心座標を指定する場合は平行移動行列を設定
             t_x, t_y, t_z = center
         else:
-            t_x = random.uniform(-0.40, 0.40) * grid_size[0]
-            t_y = random.uniform(-0.40, 0.40) * grid_size[1]
-            t_z = random.uniform(-0.40, 0.40) * grid_size[2]
+            t_x = random.uniform(-0.30, 0.30) * grid_size[0]
+            t_y = random.uniform(-0.30, 0.30) * grid_size[1]
+            t_z = random.uniform(-0.30, 0.30) * grid_size[2]
         T = self.tranlate_matrix(t_x, t_y, t_z)
         if transform:
             # 回転角度を生成
@@ -172,7 +172,7 @@ class SectorPolygonTorusBase(SDFObject):
         if n is None:
             n = random.randint(3, 8)
         if major_r is None:
-            major_r = random.uniform(min(D, H) * 0.10, min(D, H) * 0.25)
+            major_r = random.uniform(min(D, H) * 0.10, min(D, H) * 0.30)
         if minor_r is None:
             minor_r = major_r * random.uniform(0.3, 0.7)
 
@@ -211,7 +211,7 @@ class StarTorusBase(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if major_r is None:
-            major_r = random.uniform(min(D, H) * 0.10, min(D, H) * 0.25)
+            major_r = random.uniform(min(D, H) * 0.10, min(D, H) * 0.30)
         if minor_r is None:
             minor_r = major_r * random.uniform(0.3, 0.7)
         self.R = major_r
@@ -277,7 +277,7 @@ class StarRevolutionBase(_RevolutionBase):
     ):
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.10, min(D, H, W) * 0.25)
+            radius = random.uniform(min(D, H, W) * 0.10, min(D, H, W) * 0.30)
         if distance is None:
             distance = random.uniform(0.0, radius * 0.5)
         super().__init__(grid_size, device, center, transform, axis, distance)
@@ -492,7 +492,7 @@ class StarPrism(_PrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.10 * perp_min, 0.250 * perp_min)
+            radius = random.uniform(0.10 * perp_min, 0.30 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
@@ -536,7 +536,7 @@ class ConvexStarPrism(_ConvexPrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.010 * perp_min, 0.250 * perp_min)
+            radius = random.uniform(0.010 * perp_min, 0.30 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
@@ -580,7 +580,7 @@ class ConcaveStarPrism(_ConcavePrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.10 * perp_min, 0.250 * perp_min)
+            radius = random.uniform(0.10 * perp_min, 0.30 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
@@ -622,7 +622,7 @@ class ConeStarPrism(_ConePrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.10 * perp_min, 0.250 * perp_min)
+            radius = random.uniform(0.10 * perp_min, 0.30 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
@@ -662,7 +662,7 @@ class PyramidStarPrism(_PyramidPrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.10 * perp_min, 0.250 * perp_min)
+            radius = random.uniform(0.10 * perp_min, 0.30 * perp_min)
         if n is None:
             n = random.randint(5, 10)
         if w is None:
@@ -700,7 +700,7 @@ class SectorPolygonPrism(_PrismBase):
             n = random.randint(6, 16)
         if r1 is None or r2 is None:
             lo = 0.10 * perp_min
-            hi = 0.250 * perp_min
+            hi = 0.30 * perp_min
             if r1 is None and r2 is None:
                 r1 = random.uniform(lo, hi)
                 r2 = random.uniform(lo, hi)
@@ -748,7 +748,7 @@ class PyramidSectorPolygonPrism(_PyramidPrismBase):
             n = random.randint(6, 16)
         if r1 is None or r2 is None:
             lo = 0.10 * perp_min
-            hi = 0.250 * perp_min
+            hi = 0.30 * perp_min
             if r1 is None and r2 is None:
                 r1 = random.uniform(lo, hi)
                 r2 = random.uniform(lo, hi)
@@ -801,7 +801,7 @@ class ConeSectorPolygonPrism(_ConePrismBase):
             n = random.randint(6, 16)
         if r1 is None or r2 is None:
             lo = 0.10 * perp_min
-            hi = 0.250 * perp_min
+            hi = 0.30 * perp_min
             if r1 is None and r2 is None:
                 r1 = random.uniform(lo, hi)
                 r2 = random.uniform(lo, hi)
@@ -857,7 +857,7 @@ class ConvexSectorPolygonPrism(_ConvexPrismBase):
             n = random.randint(6, 16)
         if r1 is None or r2 is None:
             lo = 0.100 * perp_min
-            hi = 0.250 * perp_min
+            hi = 0.30 * perp_min
             if r1 is None and r2 is None:
                 r1 = random.uniform(lo, hi)
                 r2 = random.uniform(lo, hi)
@@ -914,7 +914,7 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
             n = random.randint(6, 16)
         if r1 is None or r2 is None:
             lo = 0.10 * perp_min
-            hi = 0.250 * perp_min
+            hi = 0.30 * perp_min
             if r1 is None and r2 is None:
                 r1 = random.uniform(lo, hi)
                 r2 = random.uniform(lo, hi)
