@@ -327,13 +327,15 @@ class SDFSegmentationDataset(Dataset):
                 "sevenstarconeprism",
                 "eightstarconeprism",
             ],
-            "torus_variants": [
+            "sector_polygon_torus": [
                 "squaretorus",
                 "pentagontorus",
                 "hexagontorus",
                 "heptagontorus",
                 "octagontorus",
                 "nonagontorus",
+            ],
+            "star_torus": [
                 "fivestartorus",
                 "sixstartorus",
                 "sevenstartorus",
@@ -830,7 +832,8 @@ if __name__ == "__main__":
             "star_convex_prism",
             "star_concave_prism",
             "star_cone_prism",
-            "torus_variants",
+            "sector_polygon_torus",
+            "star_torus",
         ],
         help="Primitive categories to use for generation. If specified, overrides --primitives. Multiple categories can be selected.",
     )
