@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import random
 
 # Import visualization functions from visualize_training_metrics.py
 import time
@@ -42,6 +43,20 @@ from fdslxsdf4seg.visualize_training_metrics import (
     plot_metrics,
     print_summary,
 )
+
+
+def set_seed(seed):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Additional settings for deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set to {seed}")
 
 
 def make_data_loder(
@@ -797,7 +812,22 @@ if __name__ == "__main__":
         type=str,
         help="Path to checkpoint file to resume training from",
     )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility. If not specified, a random seed will be generated.",
+    )
     args = p.parse_args()
+
+    # Generate random seed if not specified
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
+        print(f"No seed specified. Generated random seed: {args.seed}")
+
+    # Set random seed for reproducibility
+    set_seed(args.seed)
+
     pretraining_state = "fine_tuning"
     if not args.pretrained_model:
         pretraining_state = "training_from_scratch"
@@ -813,8 +843,11 @@ if __name__ == "__main__":
     training_log_path = os.path.join(out_dir, "training_log.txt")
     with open(training_log_path, "w") as f:
         f.write(str(args) + "\n")
+        f.write(f"Random seed: {args.seed}\n")
+        f.write("=" * 50 + "\n")
     print(f"Training log will be saved to {training_log_path}")
     print(f"Output directory: {out_dir}")
+    print(f"Random seed set to: {args.seed}")
 
     grid_size = tuple(args.grid_size)
     train_loader, val_loader = make_data_loder(
