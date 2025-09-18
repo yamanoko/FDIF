@@ -25,7 +25,7 @@ class Sphere(SDFObject):
         D, H, W = grid_size
         # ランダム化
         if radius is None:
-            radius = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.20)
+            radius = random.uniform(min(D, H, W) * 0.15, min(D, H, W) * 0.40)
         # パラメータ設定
         self.radius = radius
 
@@ -47,7 +47,7 @@ class Torus(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if major_r is None:
-            major_r = random.uniform(min(D, H) * 0.10, min(D, H) * 0.30)
+            major_r = random.uniform(min(D, H) * 0.15, min(D, H) * 0.40)
         if minor_r is None:
             minor_r = major_r * random.uniform(0.3, 0.7)
         self.R = major_r
@@ -72,9 +72,9 @@ class Cone(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if radius is None:
-            radius = random.uniform(min(D, H) * 0.05, min(D, H) * 0.20)
+            radius = random.uniform(min(D, H) * 0.15, min(D, H) * 0.40)
         if height is None:
-            height = random.uniform(W * 0.2, W * 0.3)
+            height = random.uniform(W * 0.10, W * 0.50)
         self.radius = radius
         self.height = height
 
@@ -108,7 +108,7 @@ class Octahedron(SDFObject):
         super().__init__(grid_size, device, center, transform)
         D, H, W = grid_size
         if size is None:
-            self.size = random.uniform(min(D, H, W) * 0.05, min(D, H, W) * 0.20)
+            self.size = random.uniform(min(D, H, W) * 0.15, min(D, H, W) * 0.40)
         else:
             self.size = size
 
@@ -138,7 +138,7 @@ class Cylinder(_PrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.05 * perp_min, 0.20 * perp_min)
+            radius = random.uniform(0.15 * perp_min, 0.40 * perp_min)
         self.radius = radius
 
     def sdf2d_base(self, X, Y):
@@ -219,7 +219,7 @@ class ConcaveCylinder(_ConcavePrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.05 * perp_min, 0.20 * perp_min)
+            radius = random.uniform(0.15 * perp_min, 0.40 * perp_min)
         self.radius = radius
 
     def sdf2d_base(self, X, Y):
@@ -258,7 +258,7 @@ class ConeCylinder(_ConePrismBase):
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
-            radius = random.uniform(0.05 * perp_min, 0.20 * perp_min)
+            radius = random.uniform(0.15 * perp_min, 0.40 * perp_min)
         self.radius = radius
 
     def sdf2d_base(self, X, Y):

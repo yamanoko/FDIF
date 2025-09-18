@@ -47,7 +47,7 @@ class StarBase:
         return torch.sign(p[0]) * p.norm(dim=0)  # (N,)
 
 
-class _SectorPolygonBase:  # SDFObject にミックスインして使う内部基底
+class SectorPolygonBase:  # SDFObject にミックスインして使う内部基底
     EPS = 1e-12
     TAU = 2.0 * math.pi
 
