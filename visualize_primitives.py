@@ -696,7 +696,7 @@ def generate_dataset_samples(output_dir="visualize_output", num_samples=5):
     os.makedirs(samples_dir, exist_ok=True)
 
     # グリッドサイズとデバイス設定
-    grid_size = [96, 96, 96]
+    grid_size = [64, 64, 64]
     device = torch.device("cpu")
 
     # データセットを作成

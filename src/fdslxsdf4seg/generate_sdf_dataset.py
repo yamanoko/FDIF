@@ -414,7 +414,7 @@ class SDFSegmentationDataset(Dataset):
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
 
-        x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 2.0) + 1.0)
+        x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 3.0) + 1.0)
         # x_vol = x_vol.mean(dim=0)
         x_vol = x_vol.sum(dim=0)
         x_vol = torch.clamp(x_vol, 0.0, 128.0).to(
