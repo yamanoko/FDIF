@@ -131,6 +131,7 @@ class SDFSegmentationDataset(Dataset):
         primitives: List[str] = None,
         categories: List[str] = None,
         num_classes: int = None,
+        transform: bool = True,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -398,6 +399,7 @@ class SDFSegmentationDataset(Dataset):
         }
         self.min_o = max(1, min_objects)  # 最小オブジェクト数は1以上
         self.max_o = max_objects  # 最大オブジェクト数の制限を削除
+        self.transform = transform  # 変形を適用するかどうか
 
     def __len__(self):
         return self.num_volumes
@@ -409,7 +411,9 @@ class SDFSegmentationDataset(Dataset):
         for id in primitive_ids:
             PrimClass = self.primitive_classes[id]
             obj = PrimClass(
-                grid_size=[self.D, self.H, self.W], device=self.device, transform=True
+                grid_size=[self.D, self.H, self.W],
+                device=self.device,
+                transform=self.transform,
             )
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
@@ -458,6 +462,7 @@ def generate_and_save(
     categories: List[str] = None,
     num_classes: int = None,
     log_file_path: str = None,
+    transform: bool = True,
 ):
     if seed is not None:
         random.seed(seed)
@@ -476,6 +481,7 @@ def generate_and_save(
         primitives=primitives,
         categories=categories,
         num_classes=num_classes,
+        transform=transform,
     )
 
     # 選択されたプリミティブの詳細情報を表示
@@ -840,6 +846,11 @@ if __name__ == "__main__":
     p.add_argument(
         "--num_visualize", type=int, default=0, help="Number of samples to visualize"
     )
+    p.add_argument(
+        "--no-transform",
+        action="store_true",
+        help="Disable transformations for primitives (default: transformations enabled)",
+    )
     args = p.parse_args()
 
     if not args.out_dir:
@@ -858,6 +869,7 @@ if __name__ == "__main__":
         f.write(f"Number of samples: {args.num_samples}\n")
         f.write(f"Min objects per sample: {args.min_objects}\n")
         f.write(f"Max objects per sample: {args.max_objects}\n")
+        f.write(f"Transform enabled: {not args.no_transform}\n")
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -873,6 +885,7 @@ if __name__ == "__main__":
     print(f"  Number of samples: {args.num_samples}")
     print(f"  Min objects per sample: {args.min_objects}")
     print(f"  Max objects per sample: {args.max_objects}")
+    print(f"  Transform enabled: {not args.no_transform}")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -895,6 +908,7 @@ if __name__ == "__main__":
         categories=args.categories,
         num_classes=args.num_classes,
         log_file_path=log_file,
+        transform=not args.no_transform,
     )
 
     time_end = time.time()
