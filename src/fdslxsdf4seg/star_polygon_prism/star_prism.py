@@ -15,6 +15,7 @@ class FiveStarPrism(StarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -27,6 +28,7 @@ class FiveStarPrism(StarPrism):
             n=5,
             w=w,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -42,6 +44,7 @@ class SixStarPrism(StarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -54,6 +57,7 @@ class SixStarPrism(StarPrism):
             n=6,
             w=w,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -69,6 +73,7 @@ class SevenStarPrism(StarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -81,6 +86,7 @@ class SevenStarPrism(StarPrism):
             n=7,
             w=w,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -96,6 +102,7 @@ class EightStarPrism(StarPrism):
         radius=None,
         w=None,  # 0.1 < w < 0.7 推奨
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -108,6 +115,7 @@ class EightStarPrism(StarPrism):
             n=8,
             w=w,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )

@@ -69,6 +69,22 @@ class SDFObject:
         """
         raise NotImplementedError
 
+    def onion(
+        self,
+        d: torch.Tensor,
+        thickness_list: List[float],
+    ) -> torch.Tensor:
+        """
+        オニオン化（複数の厚みで絶対値を取る操作）
+        d: meshgrid 上の signed distance (shape=(D,H,W))
+        thickness_list: オニオン化の厚みのリスト
+        戻り値: 各点の signed distance (同shape)
+        """
+        d_onion = torch.abs(d)
+        for thickness in thickness_list:
+            d_onion = torch.abs(d_onion) - thickness
+        return d_onion
+
     def tranlate_matrix(self, tx, ty, tz):
         """
         X, Y, Z 軸方向の平行移動行列を生成
@@ -140,19 +156,52 @@ class SDFObject:
         )
         return S
 
-    def applied_transform(self, x, y, z):
+    def applied_transform(self, x, y, z, inv_matrix=None):
         """
         座標 (x, y, z) に逆変換行列を適用
         戻り値: 逆変換後の座標 (x', y', z')
         """
-
+        if inv_matrix is not None:
+            inv_matrix = inv_matrix.to(self.device)
+        else:
+            inv_matrix = self.inv_transform_matrix
         coords = torch.stack(
             [x.flatten(), y.flatten(), z.flatten(), torch.ones_like(x.flatten())], dim=0
         )
         coords = coords.to(self.device)
-        transformed_coords = torch.matmul(self.inv_transform_matrix, coords)
+        transformed_coords = torch.matmul(inv_matrix, coords)
         transformed_coords = transformed_coords[:3, :].view(3, *x.shape)  # (3, D, H, W)
         return transformed_coords[0], transformed_coords[1], transformed_coords[2]
+
+
+class SmoothUnionBase(SDFObject):
+    def __init__(
+        self,
+        grid_size,
+        device,
+        center=None,
+        transform=False,
+    ):
+        super().__init__(grid_size, device, center, transform)
+        self.first_sdf = SDFObject(grid_size, device, center=(0, 0, 0), transform=False)
+        self.second_sdf = SDFObject(
+            grid_size, device, center=(0, 0, 0), transform=False
+        )
+        self.first_inv_matrix = torch.eye(4, device=device)
+        self.second_inv_matrix = torch.eye(4, device=device)
+        self.k = random.uniform(0.01, 0.15) * min(grid_size)  # スムーズパラメータ
+
+    def _sdf(self, x, y, z):
+        x1, y1, z1 = self.first_sdf.applied_transform(
+            x, y, z, inv_matrix=self.first_inv_matrix
+        )
+        x2, y2, z2 = self.second_sdf.applied_transform(
+            x, y, z, inv_matrix=self.second_inv_matrix
+        )
+        d1 = self.first_sdf._sdf(x1, y1, z1)
+        d2 = self.second_sdf._sdf(x2, y2, z2)
+        h = torch.clamp(self.k - torch.abs(d1 - d2), min=0.0)
+        return torch.min(d1, d2) - h * h / (4.0 * self.k)
 
 
 class SectorPolygonTorusBase(SDFObject):
@@ -294,6 +343,7 @@ class _PrismBase(SDFObject):
         center=None,
         transform=False,
         height=None,
+        onion_ratio=None,
         axis=2,
     ):
         SDFObject.__init__(self, grid_size, device, center, transform)
@@ -303,6 +353,7 @@ class _PrismBase(SDFObject):
             height = random.uniform(perp_min * 0.1, perp_min * 0.5)
         self.axis = axis
         self.h = float(height) / 2.0
+        self.onion_ratio = onion_ratio
 
     def sdf2d_scaled(self, X, Y, scale):
         """
@@ -313,6 +364,16 @@ class _PrismBase(SDFObject):
         Xs = X / s
         Ys = Y / s
         return s * self.sdf2d_base(Xs, Ys)
+
+    def sdf2d_onioned(self, X, Y):
+        d = self.sdf2d_scaled(X, Y)
+        if self.onion_ratio is not None:
+            min_except_axis = torch.amin(
+                d, dim=(i for i in range(d.dim()) if i != self.axis), keepdim=True
+            )
+            thickness = self.onion_ratio * min_except_axis
+            d = torch.abs(d) - thickness
+        return d
 
     @staticmethod
     def split_axes(x, y, z, axis: int):
@@ -346,6 +407,7 @@ class _PrismBase(SDFObject):
 
         scale = self._scale_at(Af)
         perp = self.sdf2d_scaled(Xf, Yf, scale)
+        perp = self.sdf2d_onioned(Xf, Yf)  # オニオン化
         along = torch.abs(Af) - self.h
         d = self.extrude_combine(perp, along)
         return d.view(*shp)
@@ -367,10 +429,13 @@ class _ConcavePrismBase(_PrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         if second_scale is None:
             second_scale = random.uniform(0.2, 0.5)
         if neck is None:
@@ -406,10 +471,13 @@ class _ConvexPrismBase(_PrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         if second_scale is None:
             second_scale = random.uniform(2.0, 4.0)
         if neck is None:
@@ -438,10 +506,13 @@ class _ConePrismBase(_PrismBase):
         transform=False,
         height: Optional[float] = None,
         second_scale: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         if second_scale is None:
             second_scale = random.uniform(0.3, 1.6)
         self.second_scale = float(second_scale)
@@ -464,12 +535,21 @@ class _PyramidPrismBase(_ConePrismBase):
         center=None,
         transform=False,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
         second_scale = 0.0  # 頂点で0スケール
         super().__init__(
-            grid_size, device, center, transform, height, second_scale, axis, seed
+            grid_size,
+            device,
+            center,
+            transform,
+            height,
+            second_scale,
+            onion_ratio,
+            axis,
+            seed,
         )
 
 
@@ -484,10 +564,13 @@ class StarPrism(_PrismBase):
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
@@ -517,6 +600,7 @@ class ConvexStarPrism(_ConvexPrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -529,6 +613,7 @@ class ConvexStarPrism(_ConvexPrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )
@@ -561,6 +646,7 @@ class ConcaveStarPrism(_ConcavePrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -573,6 +659,7 @@ class ConcaveStarPrism(_ConcavePrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )
@@ -604,6 +691,7 @@ class ConeStarPrism(_ConePrismBase):
         w: Optional[float] = None,
         height: Optional[float] = None,
         second_scale: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -615,6 +703,7 @@ class ConeStarPrism(_ConePrismBase):
             transform,
             height,
             second_scale,
+            onion_ratio,
             axis,
             seed,
         )
@@ -645,6 +734,7 @@ class PyramidStarPrism(_PyramidPrismBase):
         n: Optional[int] = None,
         w: Optional[float] = None,
         height: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -655,6 +745,7 @@ class PyramidStarPrism(_PyramidPrismBase):
             center,
             transform,
             height,
+            onion_ratio,
             axis,
             seed,
         )
@@ -689,10 +780,13 @@ class SectorPolygonPrism(_PrismBase):
         r1: Optional[float] = None,
         r2: Optional[float] = None,
         height: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if n is None:
@@ -728,6 +822,7 @@ class PyramidSectorPolygonPrism(_PyramidPrismBase):
         r1: Optional[float] = None,
         r2: Optional[float] = None,
         height: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -738,6 +833,7 @@ class PyramidSectorPolygonPrism(_PyramidPrismBase):
             center,
             transform,
             height,
+            onion_ratio,
             axis,
             seed,
         )
@@ -780,6 +876,7 @@ class ConeSectorPolygonPrism(_ConePrismBase):
         r2: Optional[float] = None,
         height: Optional[float] = None,
         second_scale: Optional[float] = None,
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -791,6 +888,7 @@ class ConeSectorPolygonPrism(_ConePrismBase):
             transform,
             height,
             second_scale,
+            onion_ratio,
             axis,
             seed,
         )
@@ -835,6 +933,7 @@ class ConvexSectorPolygonPrism(_ConvexPrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -847,6 +946,7 @@ class ConvexSectorPolygonPrism(_ConvexPrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )
@@ -892,6 +992,7 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -904,6 +1005,7 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )

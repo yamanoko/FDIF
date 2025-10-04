@@ -16,6 +16,7 @@ class TriangleConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -29,6 +30,7 @@ class TriangleConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -45,6 +47,7 @@ class SquareConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -58,6 +61,7 @@ class SquareConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -74,6 +78,7 @@ class PentagonConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -87,6 +92,7 @@ class PentagonConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -103,6 +109,7 @@ class HexagonConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -116,6 +123,7 @@ class HexagonConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -132,6 +140,7 @@ class HeptagonConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -145,6 +154,7 @@ class HeptagonConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -161,6 +171,7 @@ class OctagonConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -174,6 +185,7 @@ class OctagonConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -190,6 +202,7 @@ class NonagonConePrism(ConeSectorPolygonPrism):
         r2=None,
         height=None,
         second_scale=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -203,6 +216,7 @@ class NonagonConePrism(ConeSectorPolygonPrism):
             r2=r2,
             height=height,
             second_scale=second_scale,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )

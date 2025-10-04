@@ -125,3 +125,21 @@ class SectorPolygonBase:  # SDFObject にミックスインして使う内部基
             wn_total == 0, torch.ones_like(dist), -torch.ones_like(dist)
         )
         return sign_inside * dist
+
+
+def Pie(x, y, r, aperture):
+    """
+    2D 扇形 SDF（内:負, 外:正）。x,y,r,aperture: (N,)
+    aperture: 扇形の中心角度（ラジアン）
+    """
+    device, dtype = x.device, x.dtype
+    x = torch.abs(x)
+    p = torch.stack([x, y], dim=0)  # (2,N)
+    c = torch.tensor([[torch.sin(aperture)], [torch.cos(aperture)]]).to(
+        device=device, dtype=dtype
+    )
+    distance_from_center = torch.norm(p, dim=1) - r
+    m = torch.norm(p - c * torch.clamp(p @ c, min=0.0, max=r), dim=1)
+    return torch.max(
+        distance_from_center, m * torch.sign(c[1] * p[0] - c[0] * p[1])
+    )  # (N,)

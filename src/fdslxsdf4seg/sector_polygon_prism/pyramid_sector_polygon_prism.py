@@ -15,6 +15,7 @@ class TrianglePyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -27,6 +28,7 @@ class TrianglePyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -42,6 +44,7 @@ class Pyramid(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -54,6 +57,7 @@ class Pyramid(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -69,6 +73,7 @@ class PentagonPyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -81,6 +86,7 @@ class PentagonPyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -96,6 +102,7 @@ class HexagonPyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -108,6 +115,7 @@ class HexagonPyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -123,6 +131,7 @@ class HeptagonPyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -135,6 +144,7 @@ class HeptagonPyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -150,6 +160,7 @@ class OctagonPyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -162,6 +173,7 @@ class OctagonPyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -177,6 +189,7 @@ class NonagonPyramidPrism(PyramidSectorPolygonPrism):
         r1=None,
         r2=None,
         height=None,
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -189,6 +202,7 @@ class NonagonPyramidPrism(PyramidSectorPolygonPrism):
             r1=r1,
             r2=r2,
             height=height,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )

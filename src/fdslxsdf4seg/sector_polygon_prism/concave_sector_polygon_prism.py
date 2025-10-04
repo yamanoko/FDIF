@@ -17,6 +17,7 @@ class TriangleConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -31,6 +32,7 @@ class TriangleConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -48,6 +50,7 @@ class SquareConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -62,6 +65,7 @@ class SquareConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -79,6 +83,7 @@ class PentagonConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -93,6 +98,7 @@ class PentagonConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -110,6 +116,7 @@ class HexagonConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -124,6 +131,7 @@ class HexagonConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -141,6 +149,7 @@ class HeptagonConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -155,6 +164,7 @@ class HeptagonConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -172,6 +182,7 @@ class OctagonConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -186,6 +197,7 @@ class OctagonConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
@@ -203,6 +215,7 @@ class NonagonConcavePrism(ConcaveSectorPolygonPrism):
         height=None,
         second_scale=None,  # < 1.0 推奨（くびれ）
         neck=None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio=None,
         axis=2,
         seed=None,
     ):
@@ -217,6 +230,7 @@ class NonagonConcavePrism(ConcaveSectorPolygonPrism):
             height=height,
             second_scale=second_scale,
             neck=neck,
+            onion_ratio=onion_ratio,
             axis=axis,
             seed=seed,
         )
