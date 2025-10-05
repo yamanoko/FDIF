@@ -365,8 +365,7 @@ class _PrismBase(SDFObject):
         Ys = Y / s
         return s * self.sdf2d_base(Xs, Ys)
 
-    def sdf2d_onioned(self, X, Y):
-        d = self.sdf2d_scaled(X, Y)
+    def sdf2d_onioned(self, d):
         if self.onion_ratio is not None:
             min_except_axis = torch.amin(
                 d, dim=(i for i in range(d.dim()) if i != self.axis), keepdim=True
@@ -407,7 +406,7 @@ class _PrismBase(SDFObject):
 
         scale = self._scale_at(Af)
         perp = self.sdf2d_scaled(Xf, Yf, scale)
-        perp = self.sdf2d_onioned(Xf, Yf)  # オニオン化
+        perp = self.sdf2d_onioned(perp)  # オニオン化
         along = torch.abs(Af) - self.h
         d = self.extrude_combine(perp, along)
         return d.view(*shp)
@@ -514,7 +513,7 @@ class _ConePrismBase(_PrismBase):
             self, grid_size, device, center, transform, height, onion_ratio, axis
         )
         if second_scale is None:
-            second_scale = random.uniform(0.3, 1.6)
+            second_scale = random.uniform(0.0, 1.6)
         self.second_scale = float(second_scale)
 
     def _scale_at(self, a):
@@ -525,32 +524,6 @@ class _ConePrismBase(_PrismBase):
 
     def sdf2d_base(self, X, Y):
         raise NotImplementedError
-
-
-class _PyramidPrismBase(_ConePrismBase):
-    def __init__(
-        self,
-        grid_size,
-        device,
-        center=None,
-        transform=False,
-        height=None,
-        onion_ratio=None,
-        axis=2,
-        seed=None,
-    ):
-        second_scale = 0.0  # 頂点で0スケール
-        super().__init__(
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            second_scale,
-            onion_ratio,
-            axis,
-            seed,
-        )
 
 
 class StarPrism(_PrismBase):
@@ -723,48 +696,6 @@ class ConeStarPrism(_ConePrismBase):
         return self.star_base.sdf2d_base(X, Y)
 
 
-class PyramidStarPrism(_PyramidPrismBase):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        radius: Optional[float] = None,
-        n: Optional[int] = None,
-        w: Optional[float] = None,
-        height: Optional[float] = None,
-        onion_ratio: Optional[float] = None,
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _PyramidPrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            onion_ratio,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if radius is None:
-            radius = random.uniform(0.15 * perp_min, 0.40 * perp_min)
-        if n is None:
-            n = random.randint(5, 10)
-        if w is None:
-            w = random.uniform(0.2, 0.7)
-        if seed is None:
-            seed = random.randint(0, 1 << 30)
-        self.star_base = StarBase(n=n, w=w, radius=radius, device=device)
-
-    def sdf2d_base(self, X, Y):
-        return self.star_base.sdf2d_base(X, Y)
-
-
 class SectorPolygonPrism(_PrismBase):
     """
     一定スケールの押し出し（通常のプリズム）
@@ -806,54 +737,6 @@ class SectorPolygonPrism(_PrismBase):
         self.poly_base = SectorPolygonBase(
             n=n, r1=r1, r2=r2, seed=seed, device=device
         )  # 内部基底
-
-    def sdf2d_base(self, X, Y):
-        return self.poly_base.sdf2d_base(X, Y)
-
-
-class PyramidSectorPolygonPrism(_PyramidPrismBase):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        n: Optional[int] = None,
-        r1: Optional[float] = None,
-        r2: Optional[float] = None,
-        height: Optional[float] = None,
-        onion_ratio: Optional[float] = None,
-        axis: int = 2,
-        seed: Optional[int] = None,
-    ):
-        _PyramidPrismBase.__init__(
-            self,
-            grid_size,
-            device,
-            center,
-            transform,
-            height,
-            onion_ratio,
-            axis,
-            seed,
-        )
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != axis)
-        if n is None:
-            n = random.randint(6, 16)
-        if r1 is None or r2 is None:
-            lo = 0.15 * perp_min
-            hi = 0.40 * perp_min
-            if r1 is None and r2 is None:
-                r1 = random.uniform(lo, hi)
-                r2 = random.uniform(lo, hi)
-            elif r1 is None:
-                r1 = random.uniform(lo, min(hi, r2))
-            else:
-                r2 = random.uniform(max(lo, r1), hi)
-        if seed is None:
-            seed = random.randint(0, 1 << 30)
-        self.poly_base = SectorPolygonBase(n=n, r1=r1, r2=r2, seed=seed, device=device)
 
     def sdf2d_base(self, X, Y):
         return self.poly_base.sdf2d_base(X, Y)

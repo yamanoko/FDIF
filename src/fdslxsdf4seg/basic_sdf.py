@@ -131,10 +131,13 @@ class Cylinder(_PrismBase):
         transform=False,
         radius=None,
         height: Optional[float] = None,
+        onion_ratio: Optional[float] = None,  # オニオン化の比率
         axis: int = 2,
         seed: Optional[int] = None,
     ):
-        _PrismBase.__init__(self, grid_size, device, center, transform, height, axis)
+        _PrismBase.__init__(
+            self, grid_size, device, center, transform, height, onion_ratio, axis
+        )
         D, H, W = grid_size
         perp_min = min([D, H, W][i] for i in range(3) if i != axis)
         if radius is None:
@@ -160,6 +163,7 @@ class ConvexCylinder(_ConvexPrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # > 1.0 推奨（ふくらみ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,  # オニオン化の比率
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -172,6 +176,7 @@ class ConvexCylinder(_ConvexPrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )
@@ -201,6 +206,7 @@ class ConcaveCylinder(_ConcavePrismBase):
         height: Optional[float] = None,
         second_scale: Optional[float] = None,  # < 1.0 推奨（くびれ）
         neck: Optional[float] = None,  # 中央からのバイアス位置 [-h, h]
+        onion_ratio: Optional[float] = None,  # オニオン化の比率
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -213,6 +219,7 @@ class ConcaveCylinder(_ConcavePrismBase):
             height,
             second_scale,
             neck,
+            onion_ratio,
             axis,
             seed,
         )
@@ -241,6 +248,7 @@ class ConeCylinder(_ConePrismBase):
         radius: Optional[float] = None,
         height: Optional[float] = None,
         second_scale: Optional[float] = None,
+        onion_ratio: Optional[float] = None,  # オニオン化の比率
         axis: int = 2,
         seed: Optional[int] = None,
     ):
@@ -252,6 +260,7 @@ class ConeCylinder(_ConePrismBase):
             transform,
             height,
             second_scale,
+            onion_ratio,
             axis,
             seed,
         )

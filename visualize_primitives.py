@@ -7,6 +7,7 @@
 import os
 
 import numpy as np
+import plotly.graph_objects as go
 import torch
 
 # 基本的なプリミティブ
@@ -56,14 +57,6 @@ from src.fdslxsdf4seg.sector_polygon_prism.convex_sector_polygon_prism import (
     TriangleConvexPrism,
 )
 
-# ピラミッドセクターポリゴンプリズム
-from src.fdslxsdf4seg.sector_polygon_prism.pyramid_sector_polygon_prism import (
-    HexagonPyramidPrism,
-    PentagonPyramidPrism,
-    Pyramid,
-    TrianglePyramidPrism,
-)
-
 # セクターポリゴンプリズム
 from src.fdslxsdf4seg.sector_polygon_prism.sector_polygon_prism import (
     HeptagonPrism,
@@ -102,14 +95,175 @@ from src.fdslxsdf4seg.torus.star_torus import (
 )
 
 
+def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
+    """
+    SDFデータから3D isosurface plotを生成し、半透明で可視化
+
+    Args:
+        sdf_data: SDFデータ (torch.Tensor or numpy.ndarray)
+        output_file: 出力ファイルパス (HTML形式で保存)
+        name: プリミティブ名
+    """
+    try:
+        # NumPy配列に変換
+        if isinstance(sdf_data, torch.Tensor):
+            sdf_np = sdf_data.cpu().numpy()
+        else:
+            sdf_np = sdf_data
+
+        # グリッドサイズを取得
+        nz, ny, nx = sdf_np.shape
+
+        # 座標メッシュを作成
+        x = np.linspace(0, nx - 1, nx)
+        y = np.linspace(0, ny - 1, ny)
+        z = np.linspace(0, nz - 1, nz)
+        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+
+        # isosurface用にSDFデータを調整（0レベルの等値面を表示）
+        fig = go.Figure()
+
+        # メインのisosurface（SDF = 0の等値面）
+        fig.add_trace(
+            go.Isosurface(
+                x=X.flatten(),
+                y=Y.flatten(),
+                z=Z.flatten(),
+                value=sdf_np.flatten(),
+                isomin=-1.0,
+                isomax=1.0,
+                surface_count=3,  # 複数の等値面を表示
+                colorscale="RdYlBu",
+                opacity=0.6,  # 半透明に設定
+                name=f"{name} Surface",
+                showscale=True,
+                colorbar=dict(title="SDF Value"),
+            )
+        )
+
+        # レイアウトを設定
+        fig.update_layout(
+            title=f"3D Isosurface Visualization: {name}",
+            scene=dict(
+                xaxis_title="X",
+                yaxis_title="Y",
+                zaxis_title="Z",
+                aspectmode="cube",  # 等尺で表示
+                bgcolor="rgba(0,0,0,0)",  # 背景を透明に
+                camera=dict(
+                    eye=dict(x=1.5, y=1.5, z=1.5)  # カメラ位置を調整
+                ),
+            ),
+            width=800,
+            height=600,
+        )
+
+        # HTMLファイルとして保存
+        html_file = output_file.replace(".png", "_3d.html")
+        fig.write_html(html_file)
+        print(f"  3D Isosurface saved: {html_file}")
+
+        # 静的画像も保存（要kaleido）
+        try:
+            png_file = output_file.replace(".png", "_3d.png")
+            fig.write_image(png_file, width=800, height=600)
+            print(f"  3D Isosurface PNG saved: {png_file}")
+        except Exception as e:
+            print(
+                f"  Note: Could not save PNG (install kaleido for static images): {e}"
+            )
+
+    except Exception as e:
+        print(f"  Error creating 3D isosurface for {name}: {e}")
+
+
+def visualize_primitive_marching_cubes(sdf_data, output_file, name="Primitive"):
+    """
+    Marching Cubesアルゴリズムを使用してメッシュを生成し、3D可視化
+
+    Args:
+        sdf_data: SDFデータ (torch.Tensor or numpy.ndarray)
+        output_file: 出力ファイルパス
+        name: プリミティブ名
+    """
+    try:
+        # NumPy配列に変換
+        if isinstance(sdf_data, torch.Tensor):
+            sdf_np = sdf_data.cpu().numpy()
+        else:
+            sdf_np = sdf_data
+
+        # Marching Cubesでメッシュを生成（SDF = 0の等値面）
+        try:
+            import skimage.measure as measure
+
+            verts, faces, normals, values = measure.marching_cubes(sdf_np, level=0.0)
+        except ImportError:
+            print("  Warning: scikit-image not available, using basic isosurface")
+            visualize_primitive_3d_isosurface(sdf_data, output_file, name)
+            return
+
+        # Plotlyでメッシュを可視化
+        fig = go.Figure(
+            data=[
+                go.Mesh3d(
+                    x=verts[:, 0],
+                    y=verts[:, 1],
+                    z=verts[:, 2],
+                    i=faces[:, 0],
+                    j=faces[:, 1],
+                    k=faces[:, 2],
+                    intensity=np.linspace(0, 1, len(verts)),
+                    colorscale="Viridis",
+                    opacity=0.7,  # 半透明
+                    name=f"{name} Mesh",
+                )
+            ]
+        )
+
+        # レイアウトを設定
+        fig.update_layout(
+            title=f"3D Mesh Visualization: {name}",
+            scene=dict(
+                xaxis_title="X",
+                yaxis_title="Y",
+                zaxis_title="Z",
+                aspectmode="cube",
+                bgcolor="rgba(0,0,0,0)",
+                camera=dict(eye=dict(x=1.5, y=1.5, z=1.5)),
+            ),
+            width=800,
+            height=600,
+        )
+
+        # HTMLファイルとして保存
+        html_file = output_file.replace(".png", "_mesh.html")
+        fig.write_html(html_file)
+        print(f"  3D Mesh saved: {html_file}")
+
+        # 静的画像も保存
+        try:
+            png_file = output_file.replace(".png", "_mesh.png")
+            fig.write_image(png_file, width=800, height=600)
+            print(f"  3D Mesh PNG saved: {png_file}")
+        except Exception as e:
+            print(
+                f"  Note: Could not save PNG (install kaleido for static images): {e}"
+            )
+
+    except Exception as e:
+        print(f"  Error creating 3D mesh for {name}: {e}")
+
+
 def generate_primitive_visualizations(
-    output_dir="visualize_output", primitive_type="all"
+    output_dir="visualize_output", primitive_type="all", enable_3d=True
 ):
     """各プリミティブを個別に生成し、可視化結果を保存する
 
     Args:
         output_dir: 出力ディレクトリ
         primitive_type: 生成するプリミティブのタイプ ("all", "star", "basic", "polygon")
+        enable_3d: 3D可視化を有効にするかどうか
     """
 
     # 出力ディレクトリを作成
@@ -270,54 +424,6 @@ def generate_primitive_visualizations(
                 "r1": 10.0,
                 "r2": 12.0,
                 "height": 32.0,
-                "seed": 42,
-            },
-        ),
-    ]
-
-    # ピラミッドプリズム
-    pyramid_primitives = [
-        (
-            "Pyramid",
-            Pyramid,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 25.0,
-                "seed": 42,
-            },
-        ),
-        (
-            "TrianglePyramidPrism",
-            TrianglePyramidPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 25.0,
-                "seed": 42,
-            },
-        ),
-        (
-            "PentagonPyramidPrism",
-            PentagonPyramidPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 25.0,
-                "seed": 42,
-            },
-        ),
-        (
-            "HexagonPyramidPrism",
-            HexagonPyramidPrism,
-            {
-                "center": (32.0, 32.0, 32.0),
-                "r1": 8.0,
-                "r2": 12.0,
-                "height": 25.0,
                 "seed": 42,
             },
         ),
@@ -606,7 +712,6 @@ def generate_primitive_visualizations(
     elif primitive_type == "polygon":
         selected_primitives = (
             sector_polygon_primitives
-            + pyramid_primitives
             + cone_primitives
             + convex_primitives
             + concave_primitives
@@ -628,7 +733,6 @@ def generate_primitive_visualizations(
         selected_primitives = (
             basic_primitives
             + sector_polygon_primitives
-            + pyramid_primitives
             + cone_primitives
             + convex_primitives
             + concave_primitives
@@ -668,9 +772,17 @@ def generate_primitive_visualizations(
             sdf_np = sdf_vis.cpu().numpy()
             mask_np = mask.cpu().numpy()
 
-            # 可視化を実行
+            # 従来の可視化を実行
             output_file = os.path.join(output_dir, f"{name.lower()}_visualization.png")
             visualize_sample((sdf_np, mask_np), output_file)
+
+            # 3D可視化を条件付きで実行
+            if enable_3d:
+                # 3D isosurface可視化を追加
+                visualize_primitive_3d_isosurface(sdf, output_file, name)
+
+                # Marching Cubesメッシュ可視化も試行
+                visualize_primitive_marching_cubes(sdf, output_file, name)
 
             # 統計情報を表示
             inside_count = (sdf < 0).sum().item()
@@ -766,6 +878,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Generate both primitives and dataset samples",
     )
+    parser.add_argument(
+        "--3d",
+        action="store_true",
+        help="Generate 3D isosurface visualizations (enabled by default)",
+    )
 
     args = parser.parse_args()
 
@@ -779,7 +896,11 @@ if __name__ == "__main__":
         exit(1)
 
     if args.primitives:
-        generate_primitive_visualizations(args.output_dir, args.primitive_type)
+        # 3D可視化はデフォルトで有効（明示的に無効にしない限り）
+        enable_3d = getattr(args, "3d", True)
+        generate_primitive_visualizations(
+            args.output_dir, args.primitive_type, enable_3d
+        )
 
     if args.dataset:
         generate_dataset_samples(args.output_dir, args.num_samples)
