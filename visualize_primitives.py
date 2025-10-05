@@ -128,6 +128,26 @@ from src.fdslxsdf4seg.torus.star_torus import (
     SixStarTorus,
 )
 
+# Union プリミティブ
+from src.fdslxsdf4seg.union.sphere_tube import (
+    FiveStarRevolutionCylinderUnion,
+    FiveStarRevolutionPentagonUnion,
+    FiveStarRevolutionSquareUnion,
+    FiveStarRevolutionTriangleUnion,
+    FourStarRevolutionCylinderUnion,
+    FourStarRevolutionPentagonUnion,
+    FourStarRevolutionSquareUnion,
+    FourStarRevolutionTriangleUnion,
+    SphereCylinderUnion,
+    SpherePentagonUnion,
+    SphereSquareUnion,
+    SphereTriangleUnion,
+    ThreeStarRevolutionCylinderUnion,
+    ThreeStarRevolutionPentagonUnion,
+    ThreeStarRevolutionSquareUnion,
+    ThreeStarRevolutionTriangleUnion,
+)
+
 
 def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
     """
@@ -1090,6 +1110,174 @@ def generate_primitive_visualizations(
         ),
     ]
 
+    # Union Primitivesプリミティブ（組み合わせ形状）
+    union_primitives = [
+        # Sphere based unions
+        (
+            "SphereTriangleUnion",
+            SphereTriangleUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "SphereSquareUnion",
+            SphereSquareUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "SpherePentagonUnion",
+            SpherePentagonUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "SphereCylinderUnion",
+            SphereCylinderUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        # ThreeStarRevolution based unions
+        (
+            "ThreeStarRevolutionTriangleUnion",
+            ThreeStarRevolutionTriangleUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "ThreeStarRevolutionSquareUnion",
+            ThreeStarRevolutionSquareUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "ThreeStarRevolutionPentagonUnion",
+            ThreeStarRevolutionPentagonUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "ThreeStarRevolutionCylinderUnion",
+            ThreeStarRevolutionCylinderUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        # FourStarRevolution based unions
+        (
+            "FourStarRevolutionTriangleUnion",
+            FourStarRevolutionTriangleUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FourStarRevolutionSquareUnion",
+            FourStarRevolutionSquareUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FourStarRevolutionPentagonUnion",
+            FourStarRevolutionPentagonUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FourStarRevolutionCylinderUnion",
+            FourStarRevolutionCylinderUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        # FiveStarRevolution based unions
+        (
+            "FiveStarRevolutionTriangleUnion",
+            FiveStarRevolutionTriangleUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FiveStarRevolutionSquareUnion",
+            FiveStarRevolutionSquareUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FiveStarRevolutionPentagonUnion",
+            FiveStarRevolutionPentagonUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+        (
+            "FiveStarRevolutionCylinderUnion",
+            FiveStarRevolutionCylinderUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "sphere_radius": 12.0,
+                "tube_radius": 8.0,
+                "tube_height": 16.0,
+            },
+        ),
+    ]
+
     # プリミティブタイプに応じて選択
     if primitive_type == "star":
         selected_primitives = star_primitives
@@ -1136,6 +1324,11 @@ def generate_primitive_visualizations(
         print(
             f"Generating {len(selected_primitives)} onioned primitive visualizations in '{output_dir}'..."
         )
+    elif primitive_type == "union":
+        selected_primitives = union_primitives
+        print(
+            f"Generating {len(selected_primitives)} union primitive visualizations in '{output_dir}'..."
+        )
     else:  # "all" or default
         selected_primitives = (
             basic_primitives
@@ -1148,6 +1341,7 @@ def generate_primitive_visualizations(
             + revolution_primitives
             + onioned_sector_primitives
             + onioned_star_primitives
+            + union_primitives
         )
         print(
             f"Generating {len(selected_primitives)} primitive visualizations in '{output_dir}'..."
@@ -1279,9 +1473,10 @@ if __name__ == "__main__":
             "onioned",
             "onioned_sector",
             "onioned_star",
+            "union",
         ],
         default="all",
-        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution/onioned/onioned_sector/onioned_star)",
+        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution/onioned/onioned_sector/onioned_star/union)",
     )
     parser.add_argument(
         "--dataset", action="store_true", help="Generate dataset sample visualizations"
