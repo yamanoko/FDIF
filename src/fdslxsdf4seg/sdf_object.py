@@ -368,8 +368,8 @@ class _PrismBase(SDFObject):
     def sdf2d_onioned(self, d):
         if self.onion_ratio is not None:
             min_except_axis = torch.amin(
-                d, dim=(i for i in range(d.dim()) if i != self.axis), keepdim=True
-            )
+                d, dim=tuple(i for i in range(d.dim()) if i != self.axis), keepdim=True
+            ).abs()
             thickness = self.onion_ratio * min_except_axis
             d = torch.abs(d) - thickness
         return d

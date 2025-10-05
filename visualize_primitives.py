@@ -25,6 +25,40 @@ from src.fdslxsdf4seg.generate_sdf_dataset import (
     visualize_sample,
 )
 
+# Onioned プリミティブ
+from src.fdslxsdf4seg.onioned_prism.onioned_sector_polygon_prism import (
+    OnionedHexagonPrism,
+    OnionedPentagonPrism,
+    OnionedSquareConcavePrism,
+    OnionedSquareConePrism,
+    OnionedSquareConvexPrism,
+    OnionedSquarePrism,
+    OnionedTriangleConcavePrism,
+    OnionedTriangleConePrism,
+    OnionedTriangleConvexPrism,
+    OnionedTrianglePrism,
+)
+
+# Onioned Star プリミティブ
+from src.fdslxsdf4seg.onioned_prism.onioned_star_polygon_prism import (
+    OnionedEightStarConcavePrism,
+    OnionedEightStarConePrism,
+    OnionedEightStarConvexPrism,
+    OnionedEightStarPrism,
+    OnionedFiveStarConcavePrism,
+    OnionedFiveStarConePrism,
+    OnionedFiveStarConvexPrism,
+    OnionedFiveStarPrism,
+    OnionedSevenStarConcavePrism,
+    OnionedSevenStarConePrism,
+    OnionedSevenStarConvexPrism,
+    OnionedSevenStarPrism,
+    OnionedSixStarConcavePrism,
+    OnionedSixStarConePrism,
+    OnionedSixStarConvexPrism,
+    OnionedSixStarPrism,
+)
+
 # Revolution系
 from src.fdslxsdf4seg.revolution.star_revolution import (
     FiveStarRevolution,
@@ -698,6 +732,364 @@ def generate_primitive_visualizations(
         ),
     ]
 
+    # Onioned Sector Polygonプリミティブ（オニオン形状）
+    onioned_sector_primitives = [
+        # 基本Onionedプリズム
+        (
+            "OnionedTrianglePrism",
+            OnionedTrianglePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSquarePrism",
+            OnionedSquarePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedPentagonPrism",
+            OnionedPentagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedHexagonPrism",
+            OnionedHexagonPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # Onioned凸プリズム
+        (
+            "OnionedTriangleConvexPrism",
+            OnionedTriangleConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSquareConvexPrism",
+            OnionedSquareConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # Onioned凹プリズム
+        (
+            "OnionedTriangleConcavePrism",
+            OnionedTriangleConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSquareConcavePrism",
+            OnionedSquareConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # Onionedコーンプリズム
+        (
+            "OnionedTriangleConePrism",
+            OnionedTriangleConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSquareConePrism",
+            OnionedSquareConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "r1": 8.0,
+                "r2": 12.0,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+    ]
+
+    # Onioned Star Primitivesプリミティブ（オニオン形状の星形）
+    onioned_star_primitives = [
+        # OnionedStarプリズム（基本）
+        (
+            "OnionedFiveStarPrism",
+            OnionedFiveStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSixStarPrism",
+            OnionedSixStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSevenStarPrism",
+            OnionedSevenStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedEightStarPrism",
+            OnionedEightStarPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # OnionedStar凸プリズム
+        (
+            "OnionedFiveStarConvexPrism",
+            OnionedFiveStarConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSixStarConvexPrism",
+            OnionedSixStarConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSevenStarConvexPrism",
+            OnionedSevenStarConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedEightStarConvexPrism",
+            OnionedEightStarConvexPrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 1.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # OnionedStar凹プリズム
+        (
+            "OnionedFiveStarConcavePrism",
+            OnionedFiveStarConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSixStarConcavePrism",
+            OnionedSixStarConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSevenStarConcavePrism",
+            OnionedSevenStarConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedEightStarConcavePrism",
+            OnionedEightStarConcavePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.5,
+                "neck": 0.0,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        # OnionedStarコーンプリズム
+        (
+            "OnionedFiveStarConePrism",
+            OnionedFiveStarConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSixStarConePrism",
+            OnionedSixStarConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedSevenStarConePrism",
+            OnionedSevenStarConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+        (
+            "OnionedEightStarConePrism",
+            OnionedEightStarConePrism,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "w": 0.5,
+                "height": 20.0,
+                "second_scale": 0.3,
+                "onion_ratio": 0.2,
+                "seed": 42,
+            },
+        ),
+    ]
+
     # プリミティブタイプに応じて選択
     if primitive_type == "star":
         selected_primitives = star_primitives
@@ -729,6 +1121,21 @@ def generate_primitive_visualizations(
         print(
             f"Generating {len(selected_primitives)} revolution primitive visualizations in '{output_dir}'..."
         )
+    elif primitive_type == "onioned_sector":
+        selected_primitives = onioned_sector_primitives
+        print(
+            f"Generating {len(selected_primitives)} onioned sector primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "onioned_star":
+        selected_primitives = onioned_star_primitives
+        print(
+            f"Generating {len(selected_primitives)} onioned star primitive visualizations in '{output_dir}'..."
+        )
+    elif primitive_type == "onioned":
+        selected_primitives = onioned_sector_primitives + onioned_star_primitives
+        print(
+            f"Generating {len(selected_primitives)} onioned primitive visualizations in '{output_dir}'..."
+        )
     else:  # "all" or default
         selected_primitives = (
             basic_primitives
@@ -739,6 +1146,8 @@ def generate_primitive_visualizations(
             + star_primitives
             + torus_primitives
             + revolution_primitives
+            + onioned_sector_primitives
+            + onioned_star_primitives
         )
         print(
             f"Generating {len(selected_primitives)} primitive visualizations in '{output_dir}'..."
@@ -860,9 +1269,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--primitive_type",
         type=str,
-        choices=["all", "star", "basic", "polygon", "torus", "revolution"],
+        choices=[
+            "all",
+            "star",
+            "basic",
+            "polygon",
+            "torus",
+            "revolution",
+            "onioned",
+            "onioned_sector",
+            "onioned_star",
+        ],
         default="all",
-        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution)",
+        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution/onioned/onioned_sector/onioned_star)",
     )
     parser.add_argument(
         "--dataset", action="store_true", help="Generate dataset sample visualizations"
