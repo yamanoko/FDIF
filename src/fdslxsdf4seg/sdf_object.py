@@ -944,7 +944,7 @@ class SphereTubeUnion(SmoothUnionBase):
             grid_size=grid_size, device=device, center=center, radius=sphere_radius
         )
         if tube_radius is None:
-            tube_radius = self.first_sdf.radius * random.uniform(0.4, 0.8)
+            tube_radius = sphere_radius * random.uniform(0.4, 0.8)
 
         if issubclass(
             TubeClass,
