@@ -27,6 +27,7 @@ from src.fdslxsdf4seg.generate_sdf_dataset import (
 
 # Onioned プリミティブ
 from src.fdslxsdf4seg.onioned_prism.onioned_sector_polygon_prism import (
+    OnionedCylinder,
     OnionedHexagonPrism,
     OnionedPentagonPrism,
     OnionedSquareConcavePrism,
@@ -755,6 +756,17 @@ def generate_primitive_visualizations(
     # Onioned Sector Polygonプリミティブ（オニオン形状）
     onioned_sector_primitives = [
         # 基本Onionedプリズム
+        (
+            "OnionedCylinder",
+            OnionedCylinder,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "radius": 12.0,
+                "height": 20.0,
+                "onion_ratio": 0.3,
+                "seed": 42,
+            },
+        ),
         (
             "OnionedTrianglePrism",
             OnionedTrianglePrism,

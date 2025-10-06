@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 
+from fdslxsdf4seg.basic_sdf import Cylinder
 from fdslxsdf4seg.sector_polygon_prism.concave_sector_polygon_prism import (
     HeptagonConcavePrism,
     HexagonConcavePrism,
@@ -39,6 +40,36 @@ from fdslxsdf4seg.sector_polygon_prism.sector_polygon_prism import (
     SquarePrism,
     TrianglePrism,
 )
+
+
+class OnionedCylinder(Cylinder):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        radius=None,
+        height=None,
+        onion_ratio=None,
+        axis=2,
+        seed=None,
+    ):
+        if onion_ratio is None:
+            onion_ratio = random.uniform(0.2, 0.5)
+        onion_ratio = min(onion_ratio, 1.0)
+        onion_ratio = max(onion_ratio, 0.0)
+        super().__init__(
+            grid_size,
+            device,
+            center,
+            transform,
+            radius=radius,
+            height=height,
+            onion_ratio=onion_ratio,
+            axis=axis,
+            seed=seed,
+        )
 
 
 class OnionedTrianglePrism(TrianglePrism):
