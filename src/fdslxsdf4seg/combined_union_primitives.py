@@ -73,116 +73,41 @@ def generate_combined_union_primitives(
             f"At least 2 primitive classes are required, but only {len(available_classes)} available"
         )
 
+    # 最大組み合わせ数でclamp
+    max_combinations = len(available_classes) ** 2
+    num_combinations = min(num_combinations, max_combinations)
+
+    # 2つのプリミティブリストを作成（それぞれランダムにシャッフル）
+    first_classes = available_classes.copy()
+    second_classes = available_classes.copy()
+    random.shuffle(first_classes)
+    random.shuffle(second_classes)
+
     combined_primitives = {}
-    used_combinations = set()
 
     for i in range(num_combinations):
-        # ユニークな組み合わせを生成するまでリトライ
-        max_retries = 100
-        retry_count = 0
+        # インデックスの組み合わせで順序よく生成 (0,0), (0,1), (0,2), ..., (1,0), (1,1), ...
+        first_idx = i // len(second_classes)
+        second_idx = i % len(second_classes)
 
-        while retry_count < max_retries:
-            # ランダムに2つのプリミティブを選択
-            first_name, first_class = random.choice(available_classes)
-            second_name, second_class = random.choice(available_classes)
-
-            # 組み合わせのキー（順序を考慮してソート）
-            combination_key = tuple(sorted([first_name, second_name]))
-
-            if combination_key not in used_combinations:
-                used_combinations.add(combination_key)
-                break
-
-            retry_count += 1
-
-        if retry_count >= max_retries:
-            print(
-                f"Warning: Could not generate unique combination for index {i}, using duplicate"
-            )
+        first_name, first_class = first_classes[first_idx]
+        second_name, second_class = second_classes[second_idx]
 
         # プリミティブ名を生成
         union_name = f"Union_{first_name}_{second_name}_{i:03d}"
 
-        # デフォルトパラメータを生成（必要に応じて調整）
-        first_params = _generate_default_params(first_name, first_class)
-        second_params = _generate_default_params(second_name, second_class)
-
-        # CombinedUnionPrimitiveを作成
+        # CombinedUnionPrimitiveを作成（デフォルトパラメータは各プリミティブクラスに委ねる）
         combined_primitive = CombinedUnionPrimitive(
             name=union_name,
             first_class=first_class,
             second_class=second_class,
-            first_params=first_params,
-            second_params=second_params,
+            first_params={},  # 空の辞書、各プリミティブクラスのデフォルトを使用
+            second_params={},  # 空の辞書、各プリミティブクラスのデフォルトを使用
         )
 
         combined_primitives[union_name] = combined_primitive
 
     return combined_primitives
-
-
-def _generate_default_params(primitive_name: str, primitive_class: Type) -> dict:
-    """
-    プリミティブクラスに応じたデフォルトパラメータを生成
-
-    Args:
-        primitive_name: プリミティブ名
-        primitive_class: プリミティブクラス
-
-    Returns:
-        デフォルトパラメータの辞書
-    """
-    params = {}
-
-    # 基本的なパラメータパターンを定義
-    if "Sphere" in primitive_name:
-        params = {"radius": random.uniform(8.0, 20.0)}
-
-    elif "Cylinder" in primitive_name or "Tube" in primitive_name:
-        params = {
-            "radius": random.uniform(6.0, 15.0),
-            "height": random.uniform(10.0, 25.0),
-        }
-
-    elif "Prism" in primitive_name:
-        params = {"height": random.uniform(10.0, 25.0)}
-
-        # StarPrismの場合
-        if "Star" in primitive_name:
-            params.update(
-                {
-                    "radius": random.uniform(8.0, 18.0),
-                    "n": random.randint(5, 8),
-                    "w": random.uniform(0.3, 0.6),
-                }
-            )
-
-        # SectorPolygonPrismの場合
-        elif "SectorPolygon" in primitive_name:
-            r1 = random.uniform(8.0, 18.0)
-            r2 = random.uniform(8.0, 18.0)
-            params.update({"n": random.randint(6, 12), "r1": r1, "r2": r2})
-
-    elif "Torus" in primitive_name:
-        major_r = random.uniform(15.0, 25.0)
-        minor_r = random.uniform(6.0, major_r * 0.6)
-        params = {"major_r": major_r, "minor_r": minor_r}
-
-        if "Star" in primitive_name:
-            params.update({"n": random.randint(5, 8), "w": random.uniform(0.3, 0.6)})
-        elif "SectorPolygon" in primitive_name:
-            params.update({"n": random.randint(6, 10)})
-
-    elif "Revolution" in primitive_name:
-        params = {
-            "radius": random.uniform(10.0, 20.0),
-            "distance": random.uniform(2.0, 8.0),
-        }
-
-        if "Star" in primitive_name:
-            params.update({"n": random.randint(5, 8), "w": random.uniform(0.3, 0.6)})
-
-    return params
 
 
 def is_combined_union_primitive(primitive_name: str) -> bool:
