@@ -14,6 +14,12 @@ import torch
 from plotly.subplots import make_subplots
 from torch.utils.data import DataLoader, Dataset
 
+from fdslxsdf4seg.combined_union_primitives import (
+    create_combined_union_instance,
+    generate_combined_union_primitives,
+    get_combined_union_primitive_names,
+    is_combined_union_primitive,
+)
 from fdslxsdf4seg.primitive_registry import (
     DEFAULT_PRIMITIVES,
     get_category_choices,
@@ -34,6 +40,7 @@ class SDFSegmentationDataset(Dataset):
         categories: List[str] = None,
         num_classes: int = None,
         transform: bool = True,
+        num_combined_unions: int = 0,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -57,11 +64,34 @@ class SDFSegmentationDataset(Dataset):
         # 選択されたプリミティブのみを使用
         selected_primitives = list(selected_primitives_dict.values())
 
-        # class_id, primitive_class
+        # CombinedObjectUnionプリミティブを生成
+        self.combined_union_primitives = {}
+        if num_combined_unions > 0:
+            self.combined_union_primitives = generate_combined_union_primitives(
+                num_combinations=num_combined_unions,
+                available_primitives=selected_primitive_names,
+                seed=None,  # ここでシードを設定することも可能
+            )
+            # CombinedUnionプリミティブの名前をselected_primitive_namesに追加
+            combined_union_names = get_combined_union_primitive_names(
+                self.combined_union_primitives
+            )
+            self.selected_primitive_names.extend(combined_union_names)
+
+        # class_id, primitive_class (通常のプリミティブ + CombinedUnion)
         # 1から始まるIDを割り当てる
-        self.primitive_classes = {
-            i + 1: primitive for i, primitive in enumerate(selected_primitives)
-        }
+        self.primitive_classes = {}
+        class_id = 1
+
+        # 通常のプリミティブを追加
+        for primitive in selected_primitives:
+            self.primitive_classes[class_id] = primitive
+            class_id += 1
+
+        # CombinedUnionプリミティブを追加（特別なマーカーとして文字列で保存）
+        for union_name in self.combined_union_primitives.keys():
+            self.primitive_classes[class_id] = union_name  # 文字列として保存
+            class_id += 1
         self.min_o = max(1, min_objects)  # 最小オブジェクト数は1以上
         self.max_o = max_objects  # 最大オブジェクト数の制限を削除
         self.transform = transform  # 変形を適用するかどうか
@@ -74,12 +104,29 @@ class SDFSegmentationDataset(Dataset):
         sdfs = []
         primitive_ids = random.choices(list(self.primitive_classes.keys()), k=n_objs)
         for id in primitive_ids:
-            PrimClass = self.primitive_classes[id]
-            obj = PrimClass(
-                grid_size=[self.D, self.H, self.W],
-                device=self.device,
-                transform=self.transform,
-            )
+            primitive_or_name = self.primitive_classes[id]
+
+            # CombinedUnionプリミティブかどうかを判定
+            if isinstance(primitive_or_name, str) and is_combined_union_primitive(
+                primitive_or_name
+            ):
+                # CombinedObjectUnionのインスタンスを作成
+                obj = create_combined_union_instance(
+                    primitive_name=primitive_or_name,
+                    combined_primitives=self.combined_union_primitives,
+                    grid_size=[self.D, self.H, self.W],
+                    device=self.device,
+                    transform=self.transform,
+                )
+            else:
+                # 通常のプリミティブクラスの場合
+                PrimClass = primitive_or_name
+                obj = PrimClass(
+                    grid_size=[self.D, self.H, self.W],
+                    device=self.device,
+                    transform=self.transform,
+                )
+
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
 
@@ -128,6 +175,7 @@ def generate_and_save(
     num_classes: int = None,
     log_file_path: str = None,
     transform: bool = True,
+    num_combined_unions: int = 0,
 ):
     if seed is not None:
         random.seed(seed)
@@ -147,12 +195,21 @@ def generate_and_save(
         categories=categories,
         num_classes=num_classes,
         transform=transform,
+        num_combined_unions=num_combined_unions,
     )
 
     # 選択されたプリミティブの詳細情報を表示
     print(f"Dataset created with {len(ds.primitive_classes)} primitive classes:")
-    for class_id, primitive_class in ds.primitive_classes.items():
-        print(f"  Class {class_id}: {primitive_class.__name__}")
+    for class_id, primitive_or_name in ds.primitive_classes.items():
+        if isinstance(primitive_or_name, str):
+            # CombinedUnionプリミティブの場合
+            combined_primitive = ds.combined_union_primitives[primitive_or_name]
+            print(
+                f"  Class {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})"
+            )
+        else:
+            # 通常のプリミティブクラスの場合
+            print(f"  Class {class_id}: {primitive_or_name.__name__}")
 
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
@@ -214,9 +271,34 @@ def generate_and_save(
                 f"Actually selected primitives ({len(ds.selected_primitive_names)}): {', '.join(ds.selected_primitive_names)}\n"
             )
             f.write("Primitive class ID mapping:\n")
-            for class_id, primitive_class in ds.primitive_classes.items():
-                primitive_name = primitive_class.__name__
-                f.write(f"  {class_id}: {primitive_name}\n")
+            for class_id, primitive_or_name in ds.primitive_classes.items():
+                if isinstance(primitive_or_name, str):
+                    # CombinedUnionプリミティブの場合
+                    combined_primitive = ds.combined_union_primitives[primitive_or_name]
+                    f.write(
+                        f"  {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})\n"
+                    )
+                else:
+                    # 通常のプリミティブクラスの場合
+                    primitive_name = primitive_or_name.__name__
+                    f.write(f"  {class_id}: {primitive_name}\n")
+
+            # CombinedUnionプリミティブの詳細情報も追加
+            if ds.combined_union_primitives:
+                f.write(
+                    f"\nCombined Union Primitives ({len(ds.combined_union_primitives)}):\n"
+                )
+                for (
+                    union_name,
+                    combined_primitive,
+                ) in ds.combined_union_primitives.items():
+                    f.write(f"  {union_name}:\n")
+                    f.write(
+                        f"    First: {combined_primitive.first_class.__name__} - {combined_primitive.first_params}\n"
+                    )
+                    f.write(
+                        f"    Second: {combined_primitive.second_class.__name__} - {combined_primitive.second_params}\n"
+                    )
 
     print("Done.")
 
@@ -347,6 +429,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable transformations for primitives (default: transformations enabled)",
     )
+    p.add_argument(
+        "--num_combined_unions",
+        type=int,
+        default=0,
+        help="Number of CombinedObjectUnion primitives to automatically generate (default: 0)",
+    )
     args = p.parse_args()
 
     if not args.out_dir:
@@ -366,6 +454,7 @@ if __name__ == "__main__":
         f.write(f"Min objects per sample: {args.min_objects}\n")
         f.write(f"Max objects per sample: {args.max_objects}\n")
         f.write(f"Transform enabled: {not args.no_transform}\n")
+        f.write(f"Number of combined unions: {args.num_combined_unions}\n")
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -382,6 +471,7 @@ if __name__ == "__main__":
     print(f"  Min objects per sample: {args.min_objects}")
     print(f"  Max objects per sample: {args.max_objects}")
     print(f"  Transform enabled: {not args.no_transform}")
+    print(f"  Number of combined unions: {args.num_combined_unions}")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -405,6 +495,7 @@ if __name__ == "__main__":
         num_classes=args.num_classes,
         log_file_path=log_file,
         transform=not args.no_transform,
+        num_combined_unions=args.num_combined_unions,
     )
 
     time_end = time.time()

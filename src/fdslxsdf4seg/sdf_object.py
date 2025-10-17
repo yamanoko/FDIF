@@ -977,3 +977,122 @@ class SphereTubeUnion(SmoothUnionBase):
             for i in range(3)
         ]
         self.second_inv_matrix = self.translate_matrix(*translate_distance).inverse()
+
+
+class CombinedObjectUnion(SmoothUnionBase):
+    def __init__(
+        self,
+        grid_size: List[int],
+        device: torch.device,
+        center=None,
+        transform=False,
+        FirstClass=None,
+        SecondClass=None,
+        first_params: dict = None,
+        second_params: dict = None,
+    ):
+        """
+        任意の2つのSDFオブジェクトのUnionを作成するベースクラス
+
+        Args:
+            grid_size: グリッドサイズ [D, H, W]
+            device: PyTorchデバイス
+            center: 中心座標
+            transform: 変換を適用するかどうか
+            FirstClass: 1つ目のSDFクラス
+            SecondClass: 2つ目のSDFクラス
+            first_params: 1つ目のオブジェクトに渡すパラメータ辞書
+            second_params: 2つ目のオブジェクトに渡すパラメータ辞書
+        """
+        if FirstClass is None:
+            raise ValueError("FirstClass must be specified.")
+        if SecondClass is None:
+            raise ValueError("SecondClass must be specified.")
+
+        super().__init__(grid_size, device, center, transform)
+
+        # パラメータのデフォルト値設定
+        if first_params is None:
+            first_params = {}
+        if second_params is None:
+            second_params = {}
+
+        # 1つ目のオブジェクト生成（回転のみ適用）
+        first_transform_params = first_params.copy()
+        first_transform_params.update(
+            {
+                "grid_size": grid_size,
+                "device": device,
+                "center": [0, 0, 0],  # 原点を中心とする
+                "transform": True,  # 回転のみ適用
+            }
+        )
+        self.first_sdf = self._create_rotation_only_object(
+            FirstClass, first_transform_params
+        )
+
+        # 2つ目のオブジェクト生成（回転のみ適用）
+        second_transform_params = second_params.copy()
+        second_transform_params.update(
+            {
+                "grid_size": grid_size,
+                "device": device,
+                "center": [0, 0, 0],  # 原点を中心とする
+                "transform": True,  # 回転のみ適用
+            }
+        )
+        self.second_sdf = self._create_rotation_only_object(
+            SecondClass, second_transform_params
+        )
+
+        # ランダムに軸を選択 (0: x, 1: y, 2: z)
+        self.move_axis = random.randint(0, 2)
+
+        # 各オブジェクトの全体での最小SDF値を計算
+        min_sdf_first, min_sdf_second = self._calculate_min_sdf_overall()
+
+        # 移動距離をランダムに決定（2つの最小値の合計以下）
+        max_distance = abs(min_sdf_first) + abs(min_sdf_second)
+        move_distance = random.uniform(0.1 * max_distance, max_distance)
+
+        # 2つ目のオブジェクトを選択した軸に沿って移動
+        translate_vector = [0, 0, 0]
+        translate_vector[self.move_axis] = move_distance
+        self.second_inv_matrix = self.translate_matrix(*translate_vector).inverse()
+
+    def _create_rotation_only_object(self, ObjectClass, params):
+        """回転のみを適用するオブジェクトを作成"""
+        # 元のSDFObjectの__init__をオーバーライドして回転のみ適用
+        obj = ObjectClass(**params)
+
+        # せん断と平行移動をリセット（回転のみ残す）
+        # 新しい変換行列を計算（回転のみ）
+        angle_x = random.uniform(-torch.pi, torch.pi)
+        angle_y = random.uniform(-torch.pi, torch.pi)
+        angle_z = random.uniform(-torch.pi, torch.pi)
+
+        R = obj.rotate_matrix(angle_x, angle_y, angle_z)
+        obj.transform_matrix = R
+        obj.inv_transform_matrix = torch.inverse(R)
+
+        return obj
+
+    def _calculate_min_sdf_overall(self):
+        """各オブジェクトのSDF全体での最小値を計算"""
+        D, H, W = self.grid_size
+
+        # 全体のメッシュグリッドを作成
+        x_coords = torch.linspace(-(D - 1) / 2, (D - 1) / 2, D, device=self.device)
+        y_coords = torch.linspace(-(H - 1) / 2, (H - 1) / 2, H, device=self.device)
+        z_coords = torch.linspace(-(W - 1) / 2, (W - 1) / 2, W, device=self.device)
+        X, Y, Z = torch.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
+
+        # 各オブジェクトのSDF値を計算
+        sdf_first = self.first_sdf._sdf(X, Y, Z)
+        sdf_second = self.second_sdf._sdf(X, Y, Z)
+
+        # 最小値を取得
+        min_sdf_first = torch.min(sdf_first).item()
+        min_sdf_second = torch.min(sdf_second).item()
+
+        return min_sdf_first, min_sdf_second
