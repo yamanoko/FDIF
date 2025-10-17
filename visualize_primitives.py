@@ -175,24 +175,41 @@ def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
         z = np.linspace(0, nz - 1, nz)
         X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
 
+        # SDFデータの統計情報を取得
+        sdf_min = np.min(sdf_np)
+        sdf_max = np.max(sdf_np)
+        sdf_mean = np.mean(sdf_np)
+
+        print(
+            f"    SDF stats: min={sdf_min:.3f}, max={sdf_max:.3f}, mean={sdf_mean:.3f}"
+        )
+
         # isosurface用にSDFデータを調整（0レベルの等値面を表示）
         fig = go.Figure()
 
-        # メインのisosurface（SDF = 0の等値面）
+        # 適切な等値面範囲を設定
+        iso_range = (
+            max(abs(sdf_min), abs(sdf_max)) if sdf_max > abs(sdf_min) else abs(sdf_min)
+        )
+        iso_min = max(sdf_min, -iso_range * 0.8)
+        iso_max = min(sdf_max, iso_range * 0.8)
+
+        # メインのisosurface（SDF = 0の等値面を中心に）
         fig.add_trace(
             go.Isosurface(
                 x=X.flatten(),
                 y=Y.flatten(),
                 z=Z.flatten(),
                 value=sdf_np.flatten(),
-                isomin=-1.0,
-                isomax=1.0,
-                surface_count=3,  # 複数の等値面を表示
+                isomin=iso_min,
+                isomax=iso_max,
+                surface_count=5,  # より多くの等値面を表示
                 colorscale="RdYlBu",
-                opacity=0.6,  # 半透明に設定
+                opacity=0.7,  # 少し濃くして見やすく
                 name=f"{name} Surface",
                 showscale=True,
                 colorbar=dict(title="SDF Value"),
+                caps=dict(x_show=False, y_show=False, z_show=False),  # キャップを非表示
             )
         )
 
@@ -214,19 +231,20 @@ def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
         )
 
         # HTMLファイルとして保存
-        html_file = output_file.replace(".png", "_3d.html")
-        fig.write_html(html_file)
-        print(f"  3D Isosurface saved: {html_file}")
+        fig.write_html(output_file)
+        print(f"  3D Isosurface saved: {output_file}")
 
         # 静的画像も保存（要kaleido）
         try:
-            png_file = output_file.replace(".png", "_3d.png")
+            png_file = output_file.replace(".html", ".png")
             fig.write_image(png_file, width=800, height=600)
             print(f"  3D Isosurface PNG saved: {png_file}")
+            return png_file  # PNG ファイルパスを返す
         except Exception as e:
             print(
                 f"  Note: Could not save PNG (install kaleido for static images): {e}"
             )
+            return None
 
     except Exception as e:
         print(f"  Error creating 3D isosurface for {name}: {e}")
@@ -292,19 +310,20 @@ def visualize_primitive_marching_cubes(sdf_data, output_file, name="Primitive"):
         )
 
         # HTMLファイルとして保存
-        html_file = output_file.replace(".png", "_mesh.html")
-        fig.write_html(html_file)
-        print(f"  3D Mesh saved: {html_file}")
+        fig.write_html(output_file)
+        print(f"  3D Mesh saved: {output_file}")
 
         # 静的画像も保存
         try:
-            png_file = output_file.replace(".png", "_mesh.png")
+            png_file = output_file.replace(".html", ".png")
             fig.write_image(png_file, width=800, height=600)
             print(f"  3D Mesh PNG saved: {png_file}")
+            return png_file  # PNG ファイルパスを返す
         except Exception as e:
             print(
                 f"  Note: Could not save PNG (install kaleido for static images): {e}"
             )
+            return None
 
     except Exception as e:
         print(f"  Error creating 3D mesh for {name}: {e}")
@@ -371,7 +390,8 @@ def combine_3d_visualizations(
     primitive_names, output_dir="visualize_output", viz_type="3d"
 ):
     """
-    複数のプリミティブの3D可視化（HTML）を統合したHTMLページを作成
+    複数のプリミティブの3D可視化（HTML）を統合したHTMLページを作成し、
+    同時に3D PNG画像を並べて一つの画像にも結合する
 
     Args:
         primitive_names: 結合するプリミティブ名のリスト
@@ -379,25 +399,39 @@ def combine_3d_visualizations(
         viz_type: 可視化タイプ（"3d" for isosurface, "mesh" for marching cubes）
 
     Returns:
-        str: 結合HTMLファイルのパス（成功時）、None（失敗時）
+        dict: 結果のパス（"html": HTMLファイルパス, "png": PNG結合ファイルパス）、None（失敗時）
     """
     try:
         # 結合用のディレクトリを作成
         combined_dir = os.path.join(output_dir, "combined")
         os.makedirs(combined_dir, exist_ok=True)
 
-        # 各プリミティブの3D可視化HTMLファイルパスを構築
+        # 各プリミティブの3D可視化HTMLファイルとPNGファイルパスを構築
         html_files = []
+        png_files = []
         valid_primitives = []
 
-        suffix = "_3d.html" if viz_type == "3d" else "_mesh.html"
+        html_suffix = "_3d.html" if viz_type == "3d" else "_mesh.html"
+        png_suffix = "_3d.png" if viz_type == "3d" else "_mesh.png"
 
         for primitive_name in primitive_names:
             base_name = f"{primitive_name.lower()}_visualization"
-            html_path = os.path.join(output_dir, base_name + suffix)
+            html_path = os.path.join(output_dir, base_name + html_suffix)
+            png_path = os.path.join(output_dir, base_name + png_suffix)
+
             if os.path.exists(html_path):
                 html_files.append(html_path)
                 valid_primitives.append(primitive_name)
+
+                # PNGファイルも存在する場合は追加
+                if os.path.exists(png_path):
+                    png_files.append(png_path)
+                else:
+                    # PNGファイルがない場合はNoneを追加（位置を保持）
+                    png_files.append(None)
+                    print(
+                        f"  Note: PNG file not found for {primitive_name}: {png_path}"
+                    )
             else:
                 print(
                     f"  Warning: 3D visualization not found for {primitive_name}: {html_path}"
@@ -606,11 +640,150 @@ def combine_3d_visualizations(
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-        print(f"  Combined {viz_title} visualization saved: {output_path}")
-        return output_path
+        print(f"  Combined {viz_title} HTML visualization saved: {output_path}")
+
+        # 結果を初期化
+        results = {"html": output_path}
+
+        # PNG画像の結合も実行
+        png_combined_path = None
+        available_png_files = [path for path in png_files if path is not None]
+
+        if available_png_files:
+            print(f"  Combining {len(available_png_files)} PNG images...")
+            png_combined_path = combine_3d_png_images(
+                available_png_files, valid_primitives, combined_dir, viz_type, timestamp
+            )
+            if png_combined_path:
+                results["png"] = png_combined_path
+                print(
+                    f"  Combined {viz_title} PNG visualization saved: {png_combined_path}"
+                )
+        else:
+            print("  No PNG files available for combination")
+
+        return results
 
     except Exception as e:
         print(f"  Error combining {viz_type} visualizations: {e}")
+        return None
+
+
+def combine_3d_png_images(png_files, primitive_names, output_dir, viz_type, timestamp):
+    """
+    複数の3D PNG画像を並べて一つの画像に結合する
+
+    Args:
+        png_files: 結合するPNGファイルパスのリスト
+        primitive_names: プリミティブ名のリスト（画像と対応）
+        output_dir: 出力ディレクトリ
+        viz_type: 可視化タイプ（"3d" or "mesh"）
+        timestamp: タイムスタンプ
+
+    Returns:
+        str: 結合したPNG画像のパス（成功時）、None（失敗時）
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        if not png_files:
+            return None
+
+        # 存在する画像ファイルのみをフィルタリング
+        valid_files = []
+        valid_names = []
+        for i, png_file in enumerate(png_files):
+            if png_file and os.path.exists(png_file):
+                valid_files.append(png_file)
+                valid_names.append(primitive_names[i])
+
+        if not valid_files:
+            print("  No valid PNG files found for combination")
+            return None
+
+        # 最初の画像を読み込んでサイズを取得
+        sample_img = Image.open(valid_files[0])
+        img_width, img_height = sample_img.size
+        sample_img.close()
+
+        # グリッド設定
+        grid_cols = 3
+        num_images = len(valid_files)
+        grid_rows = (num_images + grid_cols - 1) // grid_cols
+
+        # レイアウト計算
+        padding = 20
+        title_height = 80
+        label_height = 40
+        combined_width = grid_cols * img_width + (grid_cols + 1) * padding
+        combined_height = (
+            grid_rows * (img_height + label_height)
+            + (grid_rows + 1) * padding
+            + title_height
+        )
+
+        # 結合画像を作成
+        combined_img = Image.new("RGB", (combined_width, combined_height), "white")
+        draw = ImageDraw.Draw(combined_img)
+
+        # フォント設定
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 24)
+            label_font = ImageFont.truetype("arial.ttf", 16)
+        except (OSError, IOError):
+            title_font = ImageFont.load_default()
+            label_font = ImageFont.load_default()
+
+        # タイトルを描画
+        viz_title = "3D Isosurface" if viz_type == "3d" else "3D Mesh"
+        title_text = f"Combined {viz_title} Visualizations ({num_images} primitives)"
+        bbox = draw.textbbox((0, 0), title_text, font=title_font)
+        title_width = bbox[2] - bbox[0]
+        title_x = (combined_width - title_width) // 2
+        draw.text((title_x, 20), title_text, fill="black", font=title_font)
+
+        # 各画像を配置
+        for i, (png_file, name) in enumerate(zip(valid_files, valid_names)):
+            try:
+                # 画像を読み込み
+                img = Image.open(png_file)
+
+                # 位置計算
+                row = i // grid_cols
+                col = i % grid_cols
+
+                x = padding + col * (img_width + padding)
+                y = title_height + padding + row * (img_height + label_height + padding)
+
+                # 画像を貼り付け
+                combined_img.paste(img, (x, y))
+                img.close()
+
+                # ラベルを描画
+                label_y = y + img_height + 5
+                bbox = draw.textbbox((0, 0), name, font=label_font)
+                label_width = bbox[2] - bbox[0]
+                label_x = x + (img_width - label_width) // 2
+                draw.text((label_x, label_y), name, fill="black", font=label_font)
+
+            except Exception as e:
+                print(f"  Warning: Could not process {png_file}: {e}")
+                continue
+
+        # 結合画像を保存
+        output_path = os.path.join(
+            output_dir, f"combined_{viz_type}_png_{timestamp}.png"
+        )
+        combined_img.save(output_path, "PNG", quality=95)
+        combined_img.close()
+
+        return output_path
+
+    except ImportError:
+        print("  Error: PIL (Pillow) not available, cannot combine PNG images")
+        return None
+    except Exception as e:
+        print(f"  Error combining PNG images: {e}")
         return None
 
 
@@ -757,16 +930,22 @@ def combine_primitive_visualizations(
             print("  Also combining 3D visualizations...")
 
             # 3D isosurface結合
-            isosurface_path = combine_3d_visualizations(
+            isosurface_results = combine_3d_visualizations(
                 valid_primitives, output_dir, "3d"
             )
-            if isosurface_path:
-                results["3d_isosurface"] = isosurface_path
+            if isosurface_results:
+                results["3d_isosurface_html"] = isosurface_results.get("html")
+                if "png" in isosurface_results:
+                    results["3d_isosurface_png"] = isosurface_results["png"]
 
             # 3D mesh結合
-            mesh_path = combine_3d_visualizations(valid_primitives, output_dir, "mesh")
-            if mesh_path:
-                results["3d_mesh"] = mesh_path
+            mesh_results = combine_3d_visualizations(
+                valid_primitives, output_dir, "mesh"
+            )
+            if mesh_results:
+                results["3d_mesh_html"] = mesh_results.get("html")
+                if "png" in mesh_results:
+                    results["3d_mesh_png"] = mesh_results["png"]
 
         return results
 
@@ -1000,6 +1179,7 @@ def generate_primitive_variations(
     print(f"Generating {num_variations} variations of {primitive_name}...")
 
     variation_images = []
+    variation_3d_mesh_images = []  # 3D mesh PNG画像専用のリスト
 
     for i in range(num_variations):
         print(f"  Processing variation {i + 1}/{num_variations}...")
@@ -1030,6 +1210,30 @@ def generate_primitive_variations(
 
             variation_images.append(output_file)
 
+            # 3D可視化も生成（enable_3dが有効な場合）
+            if enable_3d:
+                # 元のSDFデータをNumPy配列に変換（3D可視化用）
+                sdf_original_np = sdf.cpu().numpy()
+
+                # 3D isosurface visualization（HTMLのみ生成、結合画像には含めない）
+                html_3d_file = os.path.join(
+                    variations_dir, f"{primitive_name.lower()}_var_{i + 1:02d}_3d.html"
+                )
+                visualize_primitive_3d_isosurface(
+                    sdf_original_np, html_3d_file, f"{primitive_name} Variation {i + 1}"
+                )
+
+                # 3D mesh visualization（mesh画像のみを結合画像用に収集）
+                mesh_3d_file = os.path.join(
+                    variations_dir,
+                    f"{primitive_name.lower()}_var_{i + 1:02d}_mesh.html",
+                )
+                png_mesh_file = visualize_primitive_marching_cubes(
+                    sdf_original_np, mesh_3d_file, f"{primitive_name} Variation {i + 1}"
+                )
+                if png_mesh_file:
+                    variation_3d_mesh_images.append(png_mesh_file)
+
             # 統計情報を表示
             inside_count = (sdf < 0).sum().item()
             outside_count = (sdf > 0).sum().item()
@@ -1048,11 +1252,30 @@ def generate_primitive_variations(
         )
         combine_variation_images(variation_images, combined_output, primitive_name)
 
+        # 3D mesh画像を結合（3D mesh PNG画像が存在する場合）
+        if enable_3d and variation_3d_mesh_images:
+            combined_3d_output = os.path.join(
+                variations_dir, f"{primitive_name.lower()}_variations_3d_combined.png"
+            )
+            combine_variation_images(
+                variation_3d_mesh_images,
+                combined_3d_output,
+                f"{primitive_name} 3D Mesh",
+            )
+
         print(f"\nVariation analysis completed for {primitive_name}!")
         print(
             f"Individual variations: {len(variation_images)} files in '{variations_dir}'"
         )
         print(f"Combined image: {combined_output}")
+        if enable_3d:
+            print("3D visualizations: HTML files generated for each variation")
+            if variation_3d_mesh_images:
+                print(f"Combined 3D mesh image: {combined_3d_output}")
+            else:
+                print(
+                    "Note: 3D mesh PNG images not available (install kaleido for static 3D images)"
+                )
     else:
         print(f"No variations were successfully generated for {primitive_name}")
 
@@ -2042,13 +2265,13 @@ def print_combine_usage_examples():
     print(
         "   python visualize_primitives.py --combine --combine_primitives Sphere Torus Cone"
     )
-    print("\n4. Combine with 3D visualizations:")
+    print("\n4. Combine with 3D visualizations (HTML + PNG):")
     print(
         "   python visualize_primitives.py --combine --combine_primitives Sphere Torus Cone --combine_3d"
     )
     print("\n5. Generate all primitives and combine with custom grid:")
     print("   python visualize_primitives.py --primitives --auto_combine --grid_cols 4")
-    print("\n6. Combine star primitives with 3D:")
+    print("\n6. Combine star primitives with 3D (HTML + PNG):")
     print(
         "   python visualize_primitives.py --combine --combine_primitives FiveStarPrism SixStarPrism FiveStarTorus --combine_3d"
     )
@@ -2058,6 +2281,13 @@ def print_combine_usage_examples():
     )
     print("\n8. List all available primitive names:")
     print("   python visualize_primitives.py --list_all_primitives")
+    print("\n=== 3D Combination Features ===")
+    print("When using --combine_3d, the following files are generated:")
+    print("• 2D combined image: PNG grid of all selected primitives")
+    print("• 3D HTML files: Interactive combined visualizations in browser")
+    print("• 3D PNG files: Static combined images of 3D visualizations")
+    print("  - combined_3d_png_TIMESTAMP.png (isosurface)")
+    print("  - combined_mesh_png_TIMESTAMP.png (mesh)")
     print("\n=== Available Primitive Types ===")
     print(
         "Basic: Sphere, Torus, Cone, Octahedron, Cylinder, ConvexCylinder, ConcaveCylinder, ConeCylinder"
@@ -2172,7 +2402,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--combine_3d",
         action="store_true",
-        help="Also combine 3D visualizations (HTML files) when combining",
+        help="Also combine 3D visualizations (HTML files + PNG images) when combining",
     )
     parser.add_argument(
         "--help_combine",
@@ -2282,7 +2512,8 @@ if __name__ == "__main__":
         generate_dataset_samples(args.output_dir, args.num_samples)
 
     if args.variations:
-        enable_3d = getattr(args, "3d", False)  # 3Dはバリエーション分析では通常無効
+        # 正しい属性名で3Dフラグを取得
+        enable_3d = getattr(args, "3d", False)
         generate_primitive_variations(
             args.output_dir, args.variation_primitive, args.num_variations, enable_3d
         )
