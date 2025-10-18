@@ -181,6 +181,7 @@ class SmoothUnionBase(SDFObject):
         device,
         center=None,
         transform=False,
+        shrink_factor=1.0,
     ):
         super().__init__(grid_size, device, center, transform)
         self.first_sdf = SDFObject(grid_size, device, center=(0, 0, 0), transform=False)
@@ -190,13 +191,24 @@ class SmoothUnionBase(SDFObject):
         self.first_inv_matrix = torch.eye(4, device=device)
         self.second_inv_matrix = torch.eye(4, device=device)
         self.k = random.uniform(0.01, 0.15) * min(grid_size)  # スムーズパラメータ
+        self.shrink_factor = min(max(shrink_factor, 0.5), 1.0)
 
     def _sdf(self, x, y, z):
         x1, y1, z1 = self.first_sdf.applied_transform(
             x, y, z, inv_matrix=self.first_inv_matrix
         )
+        x1, y1, z1 = (
+            x1 / self.shrink_factor,
+            y1 / self.shrink_factor,
+            z1 / self.shrink_factor,
+        )
         x2, y2, z2 = self.second_sdf.applied_transform(
             x, y, z, inv_matrix=self.second_inv_matrix
+        )
+        x2, y2, z2 = (
+            x2 / self.shrink_factor,
+            y2 / self.shrink_factor,
+            z2 / self.shrink_factor,
         )
         d1 = self.first_sdf._sdf(x1, y1, z1)
         d2 = self.second_sdf._sdf(x2, y2, z2)
@@ -986,6 +998,7 @@ class CombinedObjectUnion(SmoothUnionBase):
         device: torch.device,
         center=None,
         transform=False,
+        shrink_factor=0.7,
         FirstClass=None,
         SecondClass=None,
         first_params: dict = None,
@@ -1052,8 +1065,8 @@ class CombinedObjectUnion(SmoothUnionBase):
         min_sdf_first, min_sdf_second = self._calculate_min_sdf_overall()
 
         # 移動距離をランダムに決定（2つの最小値の合計以下）
-        max_distance = abs(min_sdf_first) + abs(min_sdf_second)
-        move_distance = random.uniform(0.1 * max_distance, max_distance)
+        max_distance = (abs(min_sdf_first) + abs(min_sdf_second)) * shrink_factor
+        move_distance = random.uniform(0.1 * max_distance, 0.7 * max_distance)
 
         # 2つ目のオブジェクトを選択した軸に沿って移動
         translate_vector = [0, 0, 0]

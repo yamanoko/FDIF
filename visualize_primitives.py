@@ -69,6 +69,7 @@ from src.fdslxsdf4seg.revolution.star_revolution import (
 
 # SDF Object ベースクラス
 from src.fdslxsdf4seg.sdf_object import (
+    CombinedObjectUnion,
     SectorPolygonPrism,
 )
 
@@ -149,105 +150,17 @@ from src.fdslxsdf4seg.union.sphere_tube import (
     ThreeStarRevolutionTriangleUnion,
 )
 
-
-def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
-    """
-    SDFデータから3D isosurface plotを生成し、半透明で可視化
-
-    Args:
-        sdf_data: SDFデータ (torch.Tensor or numpy.ndarray)
-        output_file: 出力ファイルパス (HTML形式で保存)
-        name: プリミティブ名
-    """
-    try:
-        # NumPy配列に変換
-        if isinstance(sdf_data, torch.Tensor):
-            sdf_np = sdf_data.cpu().numpy()
-        else:
-            sdf_np = sdf_data
-
-        # グリッドサイズを取得
-        nz, ny, nx = sdf_np.shape
-
-        # 座標メッシュを作成
-        x = np.linspace(0, nx - 1, nx)
-        y = np.linspace(0, ny - 1, ny)
-        z = np.linspace(0, nz - 1, nz)
-        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
-
-        # SDFデータの統計情報を取得
-        sdf_min = np.min(sdf_np)
-        sdf_max = np.max(sdf_np)
-        sdf_mean = np.mean(sdf_np)
-
-        print(
-            f"    SDF stats: min={sdf_min:.3f}, max={sdf_max:.3f}, mean={sdf_mean:.3f}"
-        )
-
-        # isosurface用にSDFデータを調整（0レベルの等値面を表示）
-        fig = go.Figure()
-
-        # 適切な等値面範囲を設定
-        iso_range = (
-            max(abs(sdf_min), abs(sdf_max)) if sdf_max > abs(sdf_min) else abs(sdf_min)
-        )
-        iso_min = max(sdf_min, -iso_range * 0.8)
-        iso_max = min(sdf_max, iso_range * 0.8)
-
-        # メインのisosurface（SDF = 0の等値面を中心に）
-        fig.add_trace(
-            go.Isosurface(
-                x=X.flatten(),
-                y=Y.flatten(),
-                z=Z.flatten(),
-                value=sdf_np.flatten(),
-                isomin=iso_min,
-                isomax=iso_max,
-                surface_count=5,  # より多くの等値面を表示
-                colorscale="RdYlBu",
-                opacity=0.7,  # 少し濃くして見やすく
-                name=f"{name} Surface",
-                showscale=True,
-                colorbar=dict(title="SDF Value"),
-                caps=dict(x_show=False, y_show=False, z_show=False),  # キャップを非表示
-            )
-        )
-
-        # レイアウトを設定
-        fig.update_layout(
-            title=f"3D Isosurface Visualization: {name}",
-            scene=dict(
-                xaxis_title="X",
-                yaxis_title="Y",
-                zaxis_title="Z",
-                aspectmode="cube",  # 等尺で表示
-                bgcolor="rgba(0,0,0,0)",  # 背景を透明に
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)  # カメラ位置を調整
-                ),
-            ),
-            width=800,
-            height=600,
-        )
-
-        # HTMLファイルとして保存
-        fig.write_html(output_file)
-        print(f"  3D Isosurface saved: {output_file}")
-
-        # 静的画像も保存（要kaleido）
-        try:
-            png_file = output_file.replace(".html", ".png")
-            fig.write_image(png_file, width=800, height=600)
-            print(f"  3D Isosurface PNG saved: {png_file}")
-            return png_file  # PNG ファイルパスを返す
-        except Exception as e:
-            print(
-                f"  Note: Could not save PNG (install kaleido for static images): {e}"
-            )
-            return None
-
-    except Exception as e:
-        print(f"  Error creating 3D isosurface for {name}: {e}")
+# DEPRECATED: isosurface visualization removed in favor of mesh-only approach
+# def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
+#     """
+#     SDFデータから3D isosurface plotを生成し、半透明で可視化
+#     [DEPRECATED] This function has been disabled to use mesh visualization only.
+#     Args:
+#         sdf_data: SDFデータ (torch.Tensor or numpy.ndarray)
+#         output_file: 出力ファイルパス (HTML形式で保存)
+#         name: プリミティブ名
+#     """
+#     pass  # Function disabled
 
 
 def visualize_primitive_marching_cubes(sdf_data, output_file, name="Primitive"):
@@ -272,8 +185,9 @@ def visualize_primitive_marching_cubes(sdf_data, output_file, name="Primitive"):
 
             verts, faces, normals, values = measure.marching_cubes(sdf_np, level=0.0)
         except ImportError:
-            print("  Warning: scikit-image not available, using basic isosurface")
-            visualize_primitive_3d_isosurface(sdf_data, output_file, name)
+            print(
+                "  Warning: scikit-image not available, cannot generate mesh visualization"
+            )
             return
 
         # Plotlyでメッシュを可視化
@@ -396,7 +310,7 @@ def combine_3d_visualizations(
     Args:
         primitive_names: 結合するプリミティブ名のリスト
         output_dir: 可視化画像が保存されているディレクトリ
-        viz_type: 可視化タイプ（"3d" for isosurface, "mesh" for marching cubes）
+        viz_type: 可視化タイプ（"mesh" for marching cubes mesh visualization）
 
     Returns:
         dict: 結果のパス（"html": HTMLファイルパス, "png": PNG結合ファイルパス）、None（失敗時）
@@ -447,7 +361,7 @@ def combine_3d_visualizations(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # 統合HTMLページを作成（実用的なアプローチ）
-        viz_title = "3D Isosurface" if viz_type == "3d" else "3D Mesh"
+        viz_title = "3D Mesh"
         output_path = os.path.join(
             combined_dir, f"combined_{viz_type}_primitives_{timestamp}.html"
         )
@@ -735,7 +649,7 @@ def combine_3d_png_images(png_files, primitive_names, output_dir, viz_type, time
             label_font = ImageFont.load_default()
 
         # タイトルを描画
-        viz_title = "3D Isosurface" if viz_type == "3d" else "3D Mesh"
+        viz_title = "3D Mesh"
         title_text = f"Combined {viz_title} Visualizations ({num_images} primitives)"
         bbox = draw.textbbox((0, 0), title_text, font=title_font)
         title_width = bbox[2] - bbox[0]
@@ -927,18 +841,9 @@ def combine_primitive_visualizations(
 
         # 3D可視化の結合も実行
         if include_3d:
-            print("  Also combining 3D visualizations...")
+            print("  Also combining 3D mesh visualizations...")
 
-            # 3D isosurface結合
-            isosurface_results = combine_3d_visualizations(
-                valid_primitives, output_dir, "3d"
-            )
-            if isosurface_results:
-                results["3d_isosurface_html"] = isosurface_results.get("html")
-                if "png" in isosurface_results:
-                    results["3d_isosurface_png"] = isosurface_results["png"]
-
-            # 3D mesh結合
+            # 3D mesh結合のみ実行
             mesh_results = combine_3d_visualizations(
                 valid_primitives, output_dir, "mesh"
             )
@@ -1165,6 +1070,37 @@ def generate_primitive_variations(
             FiveStarRevolutionPentagonUnion,
             {"center": (32.0, 32.0, 32.0)},
         ),
+        # CombinedObjectUnion系
+        "CombinedSphereTorusUnion": (
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Sphere,
+                "SecondClass": Torus,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
+        "CombinedSphereCylinderUnion": (
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Sphere,
+                "SecondClass": Cylinder,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
+        "CombinedTorusConeUnion": (
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Torus,
+                "SecondClass": Cone,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
     }
 
     if primitive_name not in primitive_mapping:
@@ -1215,14 +1151,6 @@ def generate_primitive_variations(
                 # 元のSDFデータをNumPy配列に変換（3D可視化用）
                 sdf_original_np = sdf.cpu().numpy()
 
-                # 3D isosurface visualization（HTMLのみ生成、結合画像には含めない）
-                html_3d_file = os.path.join(
-                    variations_dir, f"{primitive_name.lower()}_var_{i + 1:02d}_3d.html"
-                )
-                visualize_primitive_3d_isosurface(
-                    sdf_original_np, html_3d_file, f"{primitive_name} Variation {i + 1}"
-                )
-
                 # 3D mesh visualization（mesh画像のみを結合画像用に収集）
                 mesh_3d_file = os.path.join(
                     variations_dir,
@@ -1269,7 +1197,7 @@ def generate_primitive_variations(
         )
         print(f"Combined image: {combined_output}")
         if enable_3d:
-            print("3D visualizations: HTML files generated for each variation")
+            print("3D mesh visualizations: HTML files generated for each variation")
             if variation_3d_mesh_images:
                 print(f"Combined 3D mesh image: {combined_3d_output}")
             else:
@@ -1405,6 +1333,10 @@ def get_all_primitive_names():
         "FiveStarRevolutionSquareUnion",
         "FiveStarRevolutionPentagonUnion",
         "FiveStarRevolutionCylinderUnion",
+        # CombinedObjectUnion primitives
+        "CombinedSphereTorusUnion",
+        "CombinedSphereCylinderUnion",
+        "CombinedTorusConeUnion",
     ]
 
     # 全プリミティブを結合
@@ -2068,6 +2000,40 @@ def generate_primitive_visualizations(
                 "center": (32.0, 32.0, 32.0),
             },
         ),
+        # CombinedObjectUnion primitives
+        (
+            "CombinedSphereTorusUnion",
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Sphere,
+                "SecondClass": Torus,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
+        (
+            "CombinedSphereCylinderUnion",
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Sphere,
+                "SecondClass": Cylinder,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
+        (
+            "CombinedTorusConeUnion",
+            CombinedObjectUnion,
+            {
+                "center": (32.0, 32.0, 32.0),
+                "FirstClass": Torus,
+                "SecondClass": Cone,
+                "first_params": {},
+                "second_params": {},
+            },
+        ),
     ]
 
     # プリミティブタイプに応じて選択
@@ -2121,6 +2087,13 @@ def generate_primitive_visualizations(
         print(
             f"Generating {len(selected_primitives)} union primitive visualizations in '{output_dir}'..."
         )
+    elif primitive_type == "combined":
+        # CombinedObjectUnionプリミティブのみを選択
+        combined_primitives = [p for p in union_primitives if "Combined" in p[0]]
+        selected_primitives = combined_primitives
+        print(
+            f"Generating {len(selected_primitives)} combined object union primitive visualizations in '{output_dir}'..."
+        )
     else:  # "all" or default
         selected_primitives = (
             basic_primitives
@@ -2166,11 +2139,9 @@ def generate_primitive_visualizations(
 
             # 3D可視化を条件付きで実行
             if enable_3d:
-                # 3D isosurface可視化を追加
-                visualize_primitive_3d_isosurface(sdf, output_file, name)
-
-                # Marching Cubesメッシュ可視化も試行
-                visualize_primitive_marching_cubes(sdf, output_file, name)
+                # Marching Cubesメッシュ可視化のみ実行
+                html_mesh_file = output_file.replace(".png", "_mesh.html")
+                visualize_primitive_marching_cubes(sdf, html_mesh_file, name)
 
             # 統計情報を表示
             inside_count = (sdf < 0).sum().item()
@@ -2333,9 +2304,10 @@ if __name__ == "__main__":
             "onioned_sector",
             "onioned_star",
             "union",
+            "combined",
         ],
         default="all",
-        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution/onioned/onioned_sector/onioned_star/union)",
+        help="Type of primitives to generate (all/star/basic/polygon/torus/revolution/onioned/onioned_sector/onioned_star/union/combined)",
     )
     parser.add_argument(
         "--dataset", action="store_true", help="Generate dataset sample visualizations"
@@ -2354,7 +2326,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--3d",
         action="store_true",
-        help="Generate 3D isosurface visualizations (enabled by default)",
+        help="Generate 3D mesh visualizations (enabled by default)",
     )
     parser.add_argument(
         "--variations",
