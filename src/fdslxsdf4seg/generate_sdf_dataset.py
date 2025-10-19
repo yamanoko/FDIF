@@ -4,7 +4,7 @@ import json
 import os
 import random
 import time
-from typing import List
+from typing import List, Optional
 
 import nibabel as nib
 import numpy as np
@@ -20,12 +20,17 @@ from fdslxsdf4seg.combined_union_primitives import (
     get_combined_union_primitive_names,
     is_combined_union_primitive,
 )
+from fdslxsdf4seg.hybrid_primitive import (
+    create_hybrid_primitives,
+    get_mapper_choices,
+)
 from fdslxsdf4seg.primitive_registry import (
     DEFAULT_PRIMITIVES,
     get_category_choices,
     get_primitive_choices,
     select_primitives,
 )
+from fdslxsdf4seg.sdf_mapper import MapperRegistry
 
 
 class SDFSegmentationDataset(Dataset):
@@ -41,6 +46,7 @@ class SDFSegmentationDataset(Dataset):
         num_classes: int = None,
         transform: bool = True,
         num_combined_unions: int = 0,
+        sdf_mappers: Optional[List[str]] = None,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -64,6 +70,17 @@ class SDFSegmentationDataset(Dataset):
         # 選択されたプリミティブのみを使用
         selected_primitives = list(selected_primitives_dict.values())
 
+        # SDFマッパーの設定
+        if sdf_mappers is None:
+            sdf_mappers = ["inverse_cube"]  # デフォルト
+        self.sdf_mappers = sdf_mappers
+        self.sdf_mappers_info = sdf_mappers  # ログ出力用
+
+        # ハイブリッドプリミティブを生成（プリミティブ × マッパーの全組み合わせ）
+        self.hybrid_primitives = create_hybrid_primitives(
+            selected_primitives, sdf_mappers
+        )
+
         # CombinedObjectUnionプリミティブを生成
         self.combined_union_primitives = {}
         if num_combined_unions > 0:
@@ -78,14 +95,14 @@ class SDFSegmentationDataset(Dataset):
             )
             self.selected_primitive_names.extend(combined_union_names)
 
-        # class_id, primitive_class (通常のプリミティブ + CombinedUnion)
+        # class_id, hybrid_primitive (ハイブリッドプリミティブ + CombinedUnion)
         # 1から始まるIDを割り当てる
         self.primitive_classes = {}
         class_id = 1
 
-        # 通常のプリミティブを追加
-        for primitive in selected_primitives:
-            self.primitive_classes[class_id] = primitive
+        # ハイブリッドプリミティブを追加
+        for hybrid_key, hybrid in self.hybrid_primitives.items():
+            self.primitive_classes[class_id] = hybrid
             class_id += 1
 
         # CombinedUnionプリミティブを追加（特別なマーカーとして文字列で保存）
@@ -119,9 +136,9 @@ class SDFSegmentationDataset(Dataset):
                     transform=self.transform,
                 )
             else:
-                # 通常のプリミティブクラスの場合
-                PrimClass = primitive_or_name
-                obj = PrimClass(
+                # ハイブリッドプリミティブの場合
+                hybrid = primitive_or_name
+                obj = hybrid(
                     grid_size=[self.D, self.H, self.W],
                     device=self.device,
                     transform=self.transform,
@@ -130,15 +147,25 @@ class SDFSegmentationDataset(Dataset):
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
 
-        x_vol = 128.0 / (torch.pow(torch.abs(torch.stack(sdfs, dim=0)), 3.0) + 1.0)
-        # x_vol = x_vol.mean(dim=0)
-        x_vol = x_vol.sum(dim=0)
+        # マッパーの取得（最初のハイブリッドプリミティブから）
+        # 注: 単一のマッパーを使用する設計になっています
+        # 複数のマッパーを混在させたい場合は、プリミティブごとにマッパーを追跡する必要があります
+        first_primitive_or_name = self.primitive_classes[primitive_ids[0]]
+        if isinstance(first_primitive_or_name, str):
+            # CombinedUnion の場合は逆立方体マッパーを使用
+            current_mapper = MapperRegistry.get("inverse_cube")
+        else:
+            # ハイブリッドプリミティブ
+            current_mapper = first_primitive_or_name.mapper
+
+        # x_volをマッパーで計算
+        stacked_sdfs = torch.stack(sdfs, dim=0)
+        x_vol = current_mapper.apply(stacked_sdfs)
         x_vol = torch.clamp(x_vol, 0.0, 128.0).to(
             torch.uint8
         )  # sdfs は各オブジェクトの SDF を保持
         # SDFが0未満の部分がどれくらいあるかを体積として、体積が大きい順にSDFを並び替える
         # 各オブジェクトのidもそれに伴って並び替える
-        stacked_sdfs = torch.stack(sdfs, dim=0)
         stacked_sdfs = stacked_sdfs.view(n_objs, -1)  # (n_objs, D*H*W)
         # 各オブジェクトの体積を計算
         volumes = (stacked_sdfs <= 0).sum(dim=1)  # (n_objs,)
@@ -176,6 +203,7 @@ def generate_and_save(
     log_file_path: str = None,
     transform: bool = True,
     num_combined_unions: int = 0,
+    sdf_mappers: Optional[List[str]] = None,
 ):
     if seed is not None:
         random.seed(seed)
@@ -196,6 +224,7 @@ def generate_and_save(
         num_classes=num_classes,
         transform=transform,
         num_combined_unions=num_combined_unions,
+        sdf_mappers=sdf_mappers,
     )
 
     # 選択されたプリミティブの詳細情報を表示
@@ -208,8 +237,8 @@ def generate_and_save(
                 f"  Class {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})"
             )
         else:
-            # 通常のプリミティブクラスの場合
-            print(f"  Class {class_id}: {primitive_or_name.__name__}")
+            # ハイブリッドプリミティブの場合
+            print(f"  Class {class_id}: {primitive_or_name.get_display_name()}")
 
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
@@ -270,6 +299,7 @@ def generate_and_save(
             f.write(
                 f"Actually selected primitives ({len(ds.selected_primitive_names)}): {', '.join(ds.selected_primitive_names)}\n"
             )
+            f.write(f"SDF Mappers: {', '.join(ds.sdf_mappers_info)}\n")
             f.write("Primitive class ID mapping:\n")
             for class_id, primitive_or_name in ds.primitive_classes.items():
                 if isinstance(primitive_or_name, str):
@@ -279,9 +309,8 @@ def generate_and_save(
                         f"  {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})\n"
                     )
                 else:
-                    # 通常のプリミティブクラスの場合
-                    primitive_name = primitive_or_name.__name__
-                    f.write(f"  {class_id}: {primitive_name}\n")
+                    # ハイブリッドプリミティブの場合
+                    f.write(f"  {class_id}: {primitive_or_name.get_display_name()}\n")
 
             # CombinedUnionプリミティブの詳細情報も追加
             if ds.combined_union_primitives:
@@ -435,6 +464,13 @@ if __name__ == "__main__":
         default=0,
         help="Number of CombinedObjectUnion primitives to automatically generate (default: 0)",
     )
+    p.add_argument(
+        "--sdf_mappers",
+        nargs="*",
+        default=None,
+        choices=get_mapper_choices(),
+        help=f"SDF mapper functions to use for generating x_vol. Available: {', '.join(get_mapper_choices())}. (default: inverse_cube)",
+    )
     args = p.parse_args()
 
     if not args.out_dir:
@@ -455,6 +491,10 @@ if __name__ == "__main__":
         f.write(f"Max objects per sample: {args.max_objects}\n")
         f.write(f"Transform enabled: {not args.no_transform}\n")
         f.write(f"Number of combined unions: {args.num_combined_unions}\n")
+        if args.sdf_mappers:
+            f.write(f"SDF Mappers: {', '.join(args.sdf_mappers)}\n")
+        else:
+            f.write("SDF Mappers: inverse_cube (default)\n")
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -472,6 +512,10 @@ if __name__ == "__main__":
     print(f"  Max objects per sample: {args.max_objects}")
     print(f"  Transform enabled: {not args.no_transform}")
     print(f"  Number of combined unions: {args.num_combined_unions}")
+    if args.sdf_mappers:
+        print(f"  SDF Mappers: {', '.join(args.sdf_mappers)}")
+    else:
+        print("  SDF Mappers: inverse_cube (default)")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -496,6 +540,7 @@ if __name__ == "__main__":
         log_file_path=log_file,
         transform=not args.no_transform,
         num_combined_unions=args.num_combined_unions,
+        sdf_mappers=args.sdf_mappers,
     )
 
     time_end = time.time()
