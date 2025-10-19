@@ -2180,28 +2180,107 @@ def generate_primitive_visualizations(
             )
 
 
-def generate_dataset_samples(output_dir="visualize_output", num_samples=5):
-    """データセットサンプルの可視化を生成"""
+def generate_dataset_samples(
+    output_dir="visualize_output",
+    num_samples=5,
+    grid_size=None,
+    min_objects=2,
+    max_objects=5,
+    primitives=None,
+    categories=None,
+    num_classes=None,
+    num_combined_unions=0,
+    sdf_mappers=None,
+    transform=True,
+    device=None,
+):
+    """データセットサンプルの可視化を生成
+
+    Args:
+        output_dir: 出力ディレクトリ
+        num_samples: 生成するサンプル数
+        grid_size: グリッドサイズ [D, H, W] (デフォルト: [64, 64, 64])
+        min_objects: 最小オブジェクト数
+        max_objects: 最大オブジェクト数
+        primitives: 使用するプリミティブリスト
+        categories: 使用するカテゴリリスト
+        num_classes: ランダムに選択するクラス数
+        num_combined_unions: CombinedObjectUnionプリミティブの数
+        sdf_mappers: 使用するSDFマッパーリスト
+        transform: 変形を適用するか
+        device: 使用するデバイス (デフォルト: cpu)
+    """
     from src.fdslxsdf4seg.generate_sdf_dataset import SDFSegmentationDataset
+
+    # デフォルト値の設定
+    if grid_size is None:
+        grid_size = [64, 64, 64]
+    if device is None:
+        device = torch.device("cpu")
+
+    # プリミティブ名を小文字に変換（ALL_PRIMITIVESキーは小文字）
+    if primitives is not None:
+        primitives = [p.lower() for p in primitives]
+    if categories is not None:
+        categories = [c.lower() for c in categories]
 
     # 出力ディレクトリを作成
     samples_dir = os.path.join(output_dir, "dataset_samples")
     os.makedirs(samples_dir, exist_ok=True)
 
-    # グリッドサイズとデバイス設定
-    grid_size = [64, 64, 64]
-    device = torch.device("cpu")
+    # データセット作成時のパラメータをログ出力
+    print(f"\nGenerating {num_samples} dataset samples in '{samples_dir}'...")
+    print(f"  Grid size: {grid_size}")
+    print(f"  Objects per sample: {min_objects}-{max_objects}")
+    print(f"  Combined unions: {num_combined_unions}")
+    if sdf_mappers:
+        print(f"  SDF Mappers: {', '.join(sdf_mappers)}")
+    if primitives:
+        print(f"  Primitives: {', '.join(primitives)}")
+    if categories:
+        print(f"  Categories: {', '.join(categories)}")
+    if num_classes is not None:
+        print(f"  Number of classes: {num_classes}")
+    print(f"  Transform: {transform}")
 
     # データセットを作成
     ds = SDFSegmentationDataset(
         grid_size=grid_size,
         num_volumes=num_samples,
-        min_objects=20,
-        max_objects=20,
+        min_objects=min_objects,
+        max_objects=max_objects,
         device=device,
+        primitives=primitives,
+        categories=categories,
+        num_classes=num_classes,
+        transform=transform,
+        num_combined_unions=num_combined_unions,
+        sdf_mappers=sdf_mappers,
     )
 
-    print(f"\nGenerating {num_samples} dataset samples in '{samples_dir}'...")
+    # 作成されたプリミティブクラスの情報を表示
+    print(f"\nDataset created with {len(ds.primitive_classes)} primitive classes:")
+    for class_id, primitive_or_name in ds.primitive_classes.items():
+        if isinstance(primitive_or_name, str):
+            # CombinedUnionプリミティブの場合
+            if (
+                hasattr(ds, "combined_union_primitives")
+                and primitive_or_name in ds.combined_union_primitives
+            ):
+                combined_primitive = ds.combined_union_primitives[primitive_or_name]
+                print(
+                    f"  Class {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})"
+                )
+            else:
+                print(f"  Class {class_id}: {primitive_or_name}")
+        else:
+            # ハイブリッドプリミティブの場合
+            try:
+                print(f"  Class {class_id}: {primitive_or_name.get_display_name()}")
+            except Exception:
+                print(f"  Class {class_id}: {str(primitive_or_name)}")
+
+    print(f"\nGenerating {num_samples} samples...")
 
     for i in range(num_samples):
         print(f"Processing sample {i + 1}/{num_samples}...")
@@ -2214,7 +2293,10 @@ def generate_dataset_samples(output_dir="visualize_output", num_samples=5):
 
         # オブジェクト情報を表示
         unique_objects = np.unique(y)
-        print(f"  Sample {i}: objects={unique_objects}")
+        num_objects = len(unique_objects[unique_objects > 0])
+        print(
+            f"  Sample {i}: {num_objects} objects, IDs={sorted(unique_objects[unique_objects > 0].tolist())}"
+        )
         print(f"  Saved: {output_file}")
         print(f"  Slice: {output_file.replace('.png', '_slice.png')}")
 
@@ -2317,6 +2399,64 @@ if __name__ == "__main__":
         type=int,
         default=5,
         help="Number of dataset samples to generate",
+    )
+    parser.add_argument(
+        "--grid_size",
+        type=int,
+        nargs=3,
+        default=[64, 64, 64],
+        metavar=("D", "H", "W"),
+        help="Grid size for dataset samples [D H W] (default: 64 64 64)",
+    )
+    parser.add_argument(
+        "--min_objects",
+        type=int,
+        default=2,
+        help="Minimum number of objects per sample (default: 2)",
+    )
+    parser.add_argument(
+        "--max_objects",
+        type=int,
+        default=5,
+        help="Maximum number of objects per sample (default: 5)",
+    )
+    parser.add_argument(
+        "--dataset_primitives",
+        nargs="*",
+        help="Specific primitives to use in dataset generation",
+    )
+    parser.add_argument(
+        "--dataset_categories",
+        nargs="*",
+        help="Primitive categories to use in dataset generation",
+    )
+    parser.add_argument(
+        "--dataset_num_classes",
+        type=int,
+        default=None,
+        help="Number of primitive classes to randomly select for dataset",
+    )
+    parser.add_argument(
+        "--num_combined_unions",
+        type=int,
+        default=0,
+        help="Number of CombinedObjectUnion primitives to generate (default: 0)",
+    )
+    parser.add_argument(
+        "--sdf_mappers",
+        nargs="*",
+        default=None,
+        help="SDF mapper functions to use (e.g., inverse_cube, exponential_mapper)",
+    )
+    parser.add_argument(
+        "--no_transform",
+        action="store_true",
+        help="Disable transformations for dataset primitives",
+    )
+    parser.add_argument(
+        "--cuda",
+        action="store_true",
+        help="Use CUDA device for dataset generation if available",
     )
     parser.add_argument(
         "--all",
@@ -2481,7 +2621,30 @@ if __name__ == "__main__":
         )
 
     if args.dataset:
-        generate_dataset_samples(args.output_dir, args.num_samples)
+        # デバイスの決定
+        device = None
+        if args.cuda and torch.cuda.is_available():
+            device = torch.device("cuda")
+            print("Using CUDA device for dataset generation")
+        else:
+            device = torch.device("cpu")
+            if args.cuda:
+                print("CUDA not available, using CPU instead")
+
+        generate_dataset_samples(
+            output_dir=args.output_dir,
+            num_samples=args.num_samples,
+            grid_size=args.grid_size,
+            min_objects=args.min_objects,
+            max_objects=args.max_objects,
+            primitives=args.dataset_primitives,
+            categories=args.dataset_categories,
+            num_classes=args.dataset_num_classes,
+            num_combined_unions=args.num_combined_unions,
+            sdf_mappers=args.sdf_mappers,
+            transform=not args.no_transform,
+            device=device,
+        )
 
     if args.variations:
         # 正しい属性名で3Dフラグを取得
