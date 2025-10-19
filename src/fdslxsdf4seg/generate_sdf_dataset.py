@@ -15,10 +15,8 @@ from plotly.subplots import make_subplots
 from torch.utils.data import DataLoader, Dataset
 
 from fdslxsdf4seg.combined_union_primitives import (
-    create_combined_union_instance,
     generate_combined_union_primitives,
-    get_combined_union_primitive_names,
-    is_combined_union_primitive,
+    generate_hybrid_combined_union_primitives,
 )
 from fdslxsdf4seg.hybrid_primitive import (
     create_hybrid_primitives,
@@ -30,7 +28,6 @@ from fdslxsdf4seg.primitive_registry import (
     get_primitive_choices,
     select_primitives,
 )
-from fdslxsdf4seg.sdf_mapper import MapperRegistry
 
 
 class SDFSegmentationDataset(Dataset):
@@ -83,19 +80,22 @@ class SDFSegmentationDataset(Dataset):
 
         # CombinedObjectUnionプリミティブを生成
         self.combined_union_primitives = {}
+        self.hybrid_combined_union_primitives = {}
         if num_combined_unions > 0:
             self.combined_union_primitives = generate_combined_union_primitives(
                 num_combinations=num_combined_unions,
                 available_primitives=selected_primitive_names,
                 seed=None,  # ここでシードを設定することも可能
             )
-            # CombinedUnionプリミティブの名前をselected_primitive_namesに追加
-            combined_union_names = get_combined_union_primitive_names(
-                self.combined_union_primitives
+            # CombinedUnionプリミティブ × マッパーのハイブリッドを生成
+            self.hybrid_combined_union_primitives = (
+                generate_hybrid_combined_union_primitives(
+                    combined_union_primitives=self.combined_union_primitives,
+                    mapper_names=sdf_mappers,
+                )
             )
-            self.selected_primitive_names.extend(combined_union_names)
 
-        # class_id, hybrid_primitive (ハイブリッドプリミティブ + CombinedUnion)
+        # class_id, hybrid_primitive (ハイブリッドプリミティブ + ハイブリッドCombinedUnion)
         # 1から始まるIDを割り当てる
         self.primitive_classes = {}
         class_id = 1
@@ -105,9 +105,9 @@ class SDFSegmentationDataset(Dataset):
             self.primitive_classes[class_id] = hybrid
             class_id += 1
 
-        # CombinedUnionプリミティブを追加（特別なマーカーとして文字列で保存）
-        for union_name in self.combined_union_primitives.keys():
-            self.primitive_classes[class_id] = union_name  # 文字列として保存
+        # ハイブリッドCombinedUnionプリミティブを追加
+        for hybrid_key, hybrid in self.hybrid_combined_union_primitives.items():
+            self.primitive_classes[class_id] = hybrid
             class_id += 1
         self.min_o = max(1, min_objects)  # 最小オブジェクト数は1以上
         self.max_o = max_objects  # 最大オブジェクト数の制限を削除
@@ -119,54 +119,38 @@ class SDFSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         n_objs = random.randint(self.min_o, self.max_o)
         sdfs = []
+        mappers = []  # 各プリミティブのマッパーを追跡
         primitive_ids = random.choices(list(self.primitive_classes.keys()), k=n_objs)
         for id in primitive_ids:
-            primitive_or_name = self.primitive_classes[id]
+            hybrid = self.primitive_classes[id]
 
-            # CombinedUnionプリミティブかどうかを判定
-            if isinstance(primitive_or_name, str) and is_combined_union_primitive(
-                primitive_or_name
-            ):
-                # CombinedObjectUnionのインスタンスを作成
-                obj = create_combined_union_instance(
-                    primitive_name=primitive_or_name,
-                    combined_primitives=self.combined_union_primitives,
-                    grid_size=[self.D, self.H, self.W],
-                    device=self.device,
-                    transform=self.transform,
-                )
-            else:
-                # ハイブリッドプリミティブの場合
-                hybrid = primitive_or_name
-                obj = hybrid(
-                    grid_size=[self.D, self.H, self.W],
-                    device=self.device,
-                    transform=self.transform,
-                )
+            # ハイブリッドプリミティブ（またはハイブリッドCombinedUnion）のインスタンスを作成
+            obj = hybrid(
+                grid_size=[self.D, self.H, self.W],
+                device=self.device,
+                transform=self.transform,
+            )
 
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
+            mappers.append(hybrid.mapper)  # 各プリミティブのマッパーを記録
 
-        # マッパーの取得（最初のハイブリッドプリミティブから）
-        # 注: 単一のマッパーを使用する設計になっています
-        # 複数のマッパーを混在させたい場合は、プリミティブごとにマッパーを追跡する必要があります
-        first_primitive_or_name = self.primitive_classes[primitive_ids[0]]
-        if isinstance(first_primitive_or_name, str):
-            # CombinedUnion の場合は逆立方体マッパーを使用
-            current_mapper = MapperRegistry.get("inverse_cube")
-        else:
-            # ハイブリッドプリミティブ
-            current_mapper = first_primitive_or_name.mapper
+        # x_volをマッパーで計算（複数のマッパーを混在させる設計）
+        # 各SDFに対応するマッパーを適用して、マッピング済みのSDF値を生成
+        mapped_sdfs = []
+        for sdf, mapper in zip(sdfs, mappers):
+            # 各SDFを個別のマッパーで処理
+            mapped_sdf = mapper.apply(sdf.unsqueeze(0)).squeeze(0)
+            mapped_sdfs.append(mapped_sdf)
 
-        # x_volをマッパーで計算
-        stacked_sdfs = torch.stack(sdfs, dim=0)
-        x_vol = current_mapper.apply(stacked_sdfs)
+        # マッピング済みSDFを結合して、sumで合成
+        x_vol = torch.stack(mapped_sdfs, dim=0).sum(dim=0)
         x_vol = torch.clamp(x_vol, 0.0, 128.0).to(
             torch.uint8
         )  # sdfs は各オブジェクトの SDF を保持
         # SDFが0未満の部分がどれくらいあるかを体積として、体積が大きい順にSDFを並び替える
         # 各オブジェクトのidもそれに伴って並び替える
-        stacked_sdfs = stacked_sdfs.view(n_objs, -1)  # (n_objs, D*H*W)
+        stacked_sdfs = torch.stack(sdfs, dim=0).view(n_objs, -1)  # (n_objs, D*H*W)
         # 各オブジェクトの体積を計算
         volumes = (stacked_sdfs <= 0).sum(dim=1)  # (n_objs,)
         # 体積が大きい順にソート
@@ -229,16 +213,9 @@ def generate_and_save(
 
     # 選択されたプリミティブの詳細情報を表示
     print(f"Dataset created with {len(ds.primitive_classes)} primitive classes:")
-    for class_id, primitive_or_name in ds.primitive_classes.items():
-        if isinstance(primitive_or_name, str):
-            # CombinedUnionプリミティブの場合
-            combined_primitive = ds.combined_union_primitives[primitive_or_name]
-            print(
-                f"  Class {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})"
-            )
-        else:
-            # ハイブリッドプリミティブの場合
-            print(f"  Class {class_id}: {primitive_or_name.get_display_name()}")
+    for class_id, hybrid in ds.primitive_classes.items():
+        # すべてがハイブリッド（ハイブリッドプリミティブまたはハイブリッドCombinedUnion）
+        print(f"  Class {class_id}: {hybrid.get_display_name()}")
 
     loader = DataLoader(ds, batch_size=1, num_workers=0)
 
@@ -301,33 +278,28 @@ def generate_and_save(
             )
             f.write(f"SDF Mappers: {', '.join(ds.sdf_mappers_info)}\n")
             f.write("Primitive class ID mapping:\n")
-            for class_id, primitive_or_name in ds.primitive_classes.items():
-                if isinstance(primitive_or_name, str):
-                    # CombinedUnionプリミティブの場合
-                    combined_primitive = ds.combined_union_primitives[primitive_or_name]
-                    f.write(
-                        f"  {class_id}: {primitive_or_name} ({combined_primitive.first_class.__name__} + {combined_primitive.second_class.__name__})\n"
-                    )
-                else:
-                    # ハイブリッドプリミティブの場合
-                    f.write(f"  {class_id}: {primitive_or_name.get_display_name()}\n")
+            for class_id, hybrid in ds.primitive_classes.items():
+                # すべてがハイブリッド
+                f.write(f"  {class_id}: {hybrid.get_display_name()}\n")
 
-            # CombinedUnionプリミティブの詳細情報も追加
-            if ds.combined_union_primitives:
+            # ハイブリッドCombinedUnionプリミティブの詳細情報も追加
+            if ds.hybrid_combined_union_primitives:
                 f.write(
-                    f"\nCombined Union Primitives ({len(ds.combined_union_primitives)}):\n"
+                    f"\nHybrid Combined Union Primitives ({len(ds.hybrid_combined_union_primitives)}):\n"
                 )
                 for (
-                    union_name,
-                    combined_primitive,
-                ) in ds.combined_union_primitives.items():
-                    f.write(f"  {union_name}:\n")
+                    hybrid_key,
+                    hybrid_combined_union,
+                ) in ds.hybrid_combined_union_primitives.items():
+                    combined_union = hybrid_combined_union.combined_union_primitive
+                    mapper_name = hybrid_combined_union.mapper.get_name()
+                    f.write(f"  {hybrid_key}:\n")
                     f.write(
-                        f"    First: {combined_primitive.first_class.__name__} - {combined_primitive.first_params}\n"
+                        f"    Union: {combined_union.first_class.__name__} ∪ {combined_union.second_class.__name__}\n"
                     )
-                    f.write(
-                        f"    Second: {combined_primitive.second_class.__name__} - {combined_primitive.second_params}\n"
-                    )
+                    f.write(f"    Mapper: {mapper_name}\n")
+                    f.write(f"    First params: {combined_union.first_params}\n")
+                    f.write(f"    Second params: {combined_union.second_params}\n")
 
     print("Done.")
 

@@ -8,6 +8,7 @@ import random
 from typing import Dict, List, Type
 
 from fdslxsdf4seg.primitive_registry import ALL_PRIMITIVES, DEFAULT_PRIMITIVES
+from fdslxsdf4seg.sdf_mapper import MapperRegistry, SDFMapper
 from fdslxsdf4seg.sdf_object import CombinedObjectUnion
 
 
@@ -40,6 +41,67 @@ class CombinedUnionPrimitive:
             first_params=self.first_params,
             second_params=self.second_params,
         )
+
+
+class HybridCombinedUnionPrimitive:
+    """CombinedUnionプリミティブとSDFマッパーの組み合わせを表現
+
+    単一の「CombinedUnionプリミティブ + マッパー」の組み合わせを識別可能なクラスとして扱います。
+    このクラスは、CombinedUnionプリミティブをインスタンス化する際に使用されます。
+    """
+
+    def __init__(
+        self,
+        combined_union_primitive: CombinedUnionPrimitive,
+        mapper: SDFMapper,
+    ):
+        """ハイブリッドCombinedUnionプリミティブを初期化
+
+        Args:
+            combined_union_primitive: CombinedUnionPrimitiveのインスタンス
+            mapper: SDFMapperのインスタンス
+        """
+        self.combined_union_primitive = combined_union_primitive
+        self.mapper = mapper
+        self._name = None
+        self._display_name = None
+
+    def __call__(self, *args, **kwargs):
+        """CombinedObjectUnionをインスタンス化
+
+        Returns:
+            CombinedObjectUnionのインスタンス
+        """
+        return self.combined_union_primitive.create_instance(*args, **kwargs)
+
+    def get_hybrid_name(self) -> str:
+        """一意の識別用複合名を生成
+
+        Returns:
+            "{Union名}_{マッパー名}" の形式の文字列
+        """
+        if self._name is None:
+            union_name = self.combined_union_primitive.name
+            mapper_name = self.mapper.get_name()
+            self._name = f"{union_name}_{mapper_name}"
+        return self._name
+
+    def get_display_name(self) -> str:
+        """人間が読みやすい表示用の名前
+
+        Returns:
+            "{Union名} + {マッパー名}" の形式の文字列
+        """
+        if self._display_name is None:
+            mapper_name = self.mapper.get_name()
+            # Union定義部分をより詳細に表示
+            first_name = self.combined_union_primitive.first_class.__name__
+            second_name = self.combined_union_primitive.second_class.__name__
+            self._display_name = f"({first_name} ∪ {second_name}) + {mapper_name}"
+        return self._display_name
+
+    def __repr__(self) -> str:
+        return f"HybridCombinedUnionPrimitive({self.get_display_name()})"
 
 
 def generate_combined_union_primitives(
@@ -108,6 +170,38 @@ def generate_combined_union_primitives(
         combined_primitives[union_name] = combined_primitive
 
     return combined_primitives
+
+
+def generate_hybrid_combined_union_primitives(
+    combined_union_primitives: Dict[str, CombinedUnionPrimitive],
+    mapper_names: List[str],
+) -> Dict[str, HybridCombinedUnionPrimitive]:
+    """全てのCombinedUnionプリミティブ・マッパー組み合わせを生成
+
+    Args:
+        combined_union_primitives: CombinedUnionPrimitiveの辞書
+        mapper_names: マッパー名のリスト
+
+    Returns:
+        {hybrid_name: HybridCombinedUnionPrimitive} の辞書
+
+    Example:
+        >>> combined_unions = generate_combined_union_primitives(num_combinations=2)
+        >>> mappers = ["inverse_cube", "linear"]
+        >>> hybrids = generate_hybrid_combined_union_primitives(combined_unions, mappers)
+        >>> len(hybrids)  # 2 * 2 = 4
+        4
+    """
+    hybrids = {}
+
+    for union_name, combined_union in combined_union_primitives.items():
+        for mapper_name in mapper_names:
+            mapper = MapperRegistry.get(mapper_name)
+            hybrid = HybridCombinedUnionPrimitive(combined_union, mapper)
+            hybrid_key = hybrid.get_hybrid_name()
+            hybrids[hybrid_key] = hybrid
+
+    return hybrids
 
 
 def is_combined_union_primitive(primitive_name: str) -> bool:
