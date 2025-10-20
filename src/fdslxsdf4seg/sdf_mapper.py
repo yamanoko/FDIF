@@ -19,7 +19,7 @@ class SDFMapper(ABC):
         """SDF値をマッピングして単一ボリュームに集約
 
         Args:
-            sdfs: shape (n_objs, D, H, W) のSDF値テンソル
+            sdfs: shape (D, H, W) のSDF値テンソル
 
         Returns:
             shape (D, H, W) のマッピング後の値
@@ -38,82 +38,90 @@ class InverseCubeMapper(SDFMapper):
     def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
         """逆立方体関数でマッピングして合計を返す"""
         mapped = 128.0 / (torch.pow(torch.abs(sdfs), 3.0) + 1.0)
-        return mapped.sum(dim=0)
+        return mapped
 
     def get_name(self) -> str:
         return "inverse_cube"
 
 
-class LinearMapper(SDFMapper):
-    """線形マッピング: 64.0 - |x|"""
+class ExponentialMapper(SDFMapper):
+    """指数関数マッピングの基底クラス"""
 
-    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
-        """線形関数でマッピングして合計を返す"""
-        mapped = 64.0 - torch.abs(sdfs)
-        return mapped.sum(dim=0)
-
-    def get_name(self) -> str:
-        return "linear"
-
-
-class GaussianMapper(SDFMapper):
-    """ガウシアンマッピング: 128.0 * exp(-x^2/2)"""
-
-    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
-        """ガウシアン関数でマッピングして合計を返す"""
-        mapped = 128.0 * torch.exp(-(sdfs**2) / 2.0)
-        return mapped.sum(dim=0)
-
-    def get_name(self) -> str:
-        return "gaussian"
-
-
-class ReciprocalMapper(SDFMapper):
-    """逆数マッピング: 128.0 / (|x| + 1)"""
-
-    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
-        """逆数関数でマッピングして合計を返す"""
-        mapped = 128.0 / (torch.abs(sdfs) + 1.0)
-        return mapped.sum(dim=0)
-
-    def get_name(self) -> str:
-        return "reciprocal"
-
-
-class SquareMapper(SDFMapper):
-    """二乗マッピング: 128.0 / (x^2 + 1)"""
-
-    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
-        """二乗関数でマッピングして合計を返す"""
-        mapped = 128.0 / (torch.pow(sdfs, 2.0) + 1.0)
-        return mapped.sum(dim=0)
-
-    def get_name(self) -> str:
-        return "square"
-
-
-class TanhMapper(SDFMapper):
-    """双曲正接マッピング: 64.0 * (1 + tanh(x))"""
-
-    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
-        """双曲正接関数でマッピングして合計を返す"""
-        mapped = 64.0 * (1.0 + torch.tanh(sdfs))
-        return mapped.sum(dim=0)
-
-    def get_name(self) -> str:
-        return "tanh"
-
-
-class SoftmaxMapper(SDFMapper):
-    """ソフトマックス風マッピング: exp(-|x|) のみ"""
+    def __init__(self, base: float = 2.0):
+        self.base = base
 
     def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
         """指数関数でマッピングして合計を返す"""
-        mapped = 128.0 * torch.exp(-torch.abs(sdfs))
-        return mapped.sum(dim=0)
+        mask = sdfs > 0.0
+        mapped = torch.pow(self.base, torch.clamp(sdfs, max=0.0))
+        mapped = mapped * 128.0
+        return torch.where(mask, torch.zeros_like(mapped), mapped)
 
     def get_name(self) -> str:
-        return "softmax"
+        return f"exponential_base_{self.base}"
+
+
+class LinearMapper(SDFMapper):
+    """線形マッピング: 128.0 + slope * x"""
+
+    def __init__(self, slope: float = 1.0):
+        self.slope = 1.0
+
+    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
+        """線形関数でマッピングして合計を返す"""
+        mask = sdfs > 0.0
+        mapped = torch.clamp(128.0 + self.slope * sdfs, min=0.0, max=128.0)
+        return torch.where(mask, torch.zeros_like(mapped), mapped)
+
+    def get_name(self) -> str:
+        return f"linear_slope_{self.slope}"
+
+
+class FloorMapper(SDFMapper):
+    def __init__(self, width: float = 10.0):
+        self.width = width
+
+    def apply(self, sdfs):
+        mask = sdfs > 0.0
+        mapped = -torch.floor(-sdfs / self.width) + 128.0
+        mapped = torch.clamp(mapped, min=0.0, max=128.0)
+        return torch.where(mask, torch.zeros_like(mapped), mapped)
+
+    def get_name(self) -> str:
+        return f"floor_width_{self.width}"
+
+
+class ModularMapper(SDFMapper):
+    """モジュラー関数マッピング: SDF値を特定の範囲で折り返す"""
+
+    def __init__(self, width: float = 5.0, modulus: int = 5):
+        self.width = width
+        self.modulus = modulus
+
+    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
+        mask = sdfs > 0.0
+        mapped = torch.remainder(
+            -torch.floor(-sdfs / self.width) + self.modulus - 1.0, self.modulus
+        ) * (128.0 / (self.modulus - 1.0))
+        return torch.where(mask, torch.zeros_like(mapped), mapped)
+
+    def get_name(self) -> str:
+        return f"modular_{self.modulus}"
+
+
+class SinusoidalMapper(SDFMapper):
+    """正弦関数マッピング: SDF値に基づいて正弦波でマッピング"""
+
+    def __init__(self, wavelength: float = 20.0):
+        self.wavelength = wavelength
+
+    def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
+        mask = sdfs > 0.0
+        mapped = (torch.cos((sdfs / self.wavelength) * 2.0 * torch.pi) + 1.0) * 64.0
+        return torch.where(mask, torch.zeros_like(mapped), mapped)
+
+    def get_name(self) -> str:
+        return f"sinusoidal_wavelength_{self.wavelength}"
 
 
 class MapperRegistry:
@@ -121,12 +129,11 @@ class MapperRegistry:
 
     _mappers: Dict[str, SDFMapper] = {
         "inverse_cube": InverseCubeMapper(),
-        "linear": LinearMapper(),
-        "gaussian": GaussianMapper(),
-        "reciprocal": ReciprocalMapper(),
-        "square": SquareMapper(),
-        "tanh": TanhMapper(),
-        "softmax": SoftmaxMapper(),
+        "exponential_base_2.0": ExponentialMapper(base=2.0),
+        "linear_slope_1.0": LinearMapper(slope=1.0),
+        "floor_width_10.0": FloorMapper(width=10.0),
+        "modular_5": ModularMapper(width=5.0, modulus=5),
+        "sinusoidal_wavelength_20.0": SinusoidalMapper(wavelength=20.0),
     }
 
     @classmethod

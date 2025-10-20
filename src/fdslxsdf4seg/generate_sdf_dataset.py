@@ -140,7 +140,7 @@ class SDFSegmentationDataset(Dataset):
         mapped_sdfs = []
         for sdf, mapper in zip(sdfs, mappers):
             # 各SDFを個別のマッパーで処理
-            mapped_sdf = mapper.apply(sdf.unsqueeze(0)).squeeze(0)
+            mapped_sdf = mapper.apply(sdf)
             mapped_sdfs.append(mapped_sdf)
 
         # マッピング済みSDFを結合して、sumで合成
@@ -160,7 +160,7 @@ class SDFSegmentationDataset(Dataset):
             primitive_ids[i] for i in sorted_indices.tolist()
         ]  # 各オブジェクトのSDFが0未満の部分がそのオブジェクトのIDとなる
         # 体積の小さいオブジェクトのIDが優先される
-        y_vol = torch.zeros_like(x_vol, dtype=torch.uint8)
+        y_vol = torch.zeros_like(x_vol, dtype=torch.uint64)
         for i, obj_id in enumerate(primitive_ids):
             mask = (sdfs[i] <= 0).to(torch.uint8)
             # オブジェクトIDをマスクに適用
