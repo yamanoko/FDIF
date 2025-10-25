@@ -160,7 +160,7 @@ class SDFSegmentationDataset(Dataset):
             primitive_ids[i] for i in sorted_indices.tolist()
         ]  # 各オブジェクトのSDFが0未満の部分がそのオブジェクトのIDとなる
         # 体積の小さいオブジェクトのIDが優先される
-        y_vol = torch.zeros_like(x_vol, dtype=torch.uint64)
+        y_vol = torch.zeros_like(x_vol, dtype=torch.int64)
         for i, obj_id in enumerate(primitive_ids):
             mask = (sdfs[i] <= 0).to(torch.uint8)
             # オブジェクトIDをマスクに適用
@@ -188,6 +188,9 @@ def generate_and_save(
     transform: bool = True,
     num_combined_unions: int = 0,
     sdf_mappers: Optional[List[str]] = None,
+    nnunet_format: bool = False,
+    dataset_id: int = 999,
+    dataset_name: str = "SDFSynthetic",
 ):
     if seed is not None:
         random.seed(seed)
@@ -222,53 +225,156 @@ def generate_and_save(
     data_json = {}
     json_training_list = list()
     json_validation_list = list()
+
+    # nnUNet形式用の変数
+    nnunet_labels = {"background": 0}
+    if nnunet_format:
+        # nnUNet形式の場合、ラベル情報を構築
+        for class_id, hybrid in ds.primitive_classes.items():
+            label_name = hybrid.get_display_name()
+            nnunet_labels[label_name] = class_id
+
     for i, (x, y) in enumerate(loader):
         x = x[0].numpy() if hasattr(x[0], "numpy") else x[0]
         y = y[0].numpy() if hasattr(y[0], "numpy") else y[0]
 
-        # サブディレクトリ名を決定（batch_0000, batch_0001, ...）
-        batch_idx = i // batch_size
-        batch_dir = f"batch_{batch_idx:04d}"
+        # Convert y to int32 for NIfTI compatibility
+        y = y.astype(np.int32)
 
-        # サブディレクトリを作成
-        image_batch_dir = os.path.join(out_dir, "image", batch_dir)
-        label_batch_dir = os.path.join(out_dir, "label", batch_dir)
-        os.makedirs(image_batch_dir, exist_ok=True)
-        os.makedirs(label_batch_dir, exist_ok=True)
+        if nnunet_format:
+            # nnUNet形式でのファイル保存
+            # ファイル名: {CASE_ID}_0000.nii.gz (画像), {CASE_ID}.nii.gz (ラベル)
+            case_id = f"case_{i:05d}"
 
-        # Remove channel dimension for saving as 3D NIfTI images
-        nii_x = nib.Nifti1Image(x, affine=np.eye(4))
-        nii_y = nib.Nifti1Image(y, affine=np.eye(4))
-        # Save the SDF volume and segmentation mask as separate .nii.gz files
-        image_file = os.path.join(image_batch_dir, f"sample_{i:05d}_x.nii.gz")
-        nib.save(nii_x, image_file)
-        label_file = os.path.join(label_batch_dir, f"sample_{i:05d}_y.nii.gz")
-        nib.save(nii_y, label_file)
-        if i < num_samples:
-            json_training_list.append(
-                {
-                    "image": os.path.abspath(image_file),
-                    "label": os.path.abspath(label_file),
-                    "id": f"sample_{i:05d}",
-                }
-            )
+            # imagesTr または imagesTs ディレクトリに保存
+            if i < num_samples:
+                image_dir = os.path.join(out_dir, "imagesTr")
+                label_dir = os.path.join(out_dir, "labelsTr")
+            else:
+                # validationデータは別のデータセットとして保存（imagesTs）
+                image_dir = os.path.join(out_dir, "imagesTs")
+                label_dir = os.path.join(out_dir, "labelsTs")
+
+            os.makedirs(image_dir, exist_ok=True)
+            os.makedirs(label_dir, exist_ok=True)
+
+            # nnUNet形式: 画像は {CASE_ID}_0000.nii.gz
+            image_file = os.path.join(image_dir, f"{case_id}_0000.nii.gz")
+            # nnUNet形式: ラベルは {CASE_ID}.nii.gz
+            label_file = os.path.join(label_dir, f"{case_id}.nii.gz")
+
+            nii_x = nib.Nifti1Image(x, affine=np.eye(4))
+            nii_y = nib.Nifti1Image(y, affine=np.eye(4))
+            nib.save(nii_x, image_file)
+            nib.save(nii_y, label_file)
+
+            # nnUNet形式ではdataset.jsonに含めない（後で生成）
         else:
-            json_validation_list.append(
-                {
-                    "image": os.path.abspath(image_file),
-                    "label": os.path.abspath(label_file),
-                    "id": f"sample_{i:05d}",
-                }
-            )
+            # 既存のMONAI Decathlon形式でのファイル保存
+            # サブディレクトリ名を決定（batch_0000, batch_0001, ...）
+            batch_idx = i // batch_size
+            batch_dir = f"batch_{batch_idx:04d}"
+
+            # サブディレクトリを作成
+            image_batch_dir = os.path.join(out_dir, "image", batch_dir)
+            label_batch_dir = os.path.join(out_dir, "label", batch_dir)
+            os.makedirs(image_batch_dir, exist_ok=True)
+            os.makedirs(label_batch_dir, exist_ok=True)
+
+            # Remove channel dimension for saving as 3D NIfTI images
+            nii_x = nib.Nifti1Image(x, affine=np.eye(4))
+            nii_y = nib.Nifti1Image(y, affine=np.eye(4))
+            # Save the SDF volume and segmentation mask as separate .nii.gz files
+            image_file = os.path.join(image_batch_dir, f"sample_{i:05d}_x.nii.gz")
+            nib.save(nii_x, image_file)
+            label_file = os.path.join(label_batch_dir, f"sample_{i:05d}_y.nii.gz")
+            nib.save(nii_y, label_file)
+            if i < num_samples:
+                json_training_list.append(
+                    {
+                        "image": os.path.abspath(image_file),
+                        "label": os.path.abspath(label_file),
+                        "id": f"sample_{i:05d}",
+                    }
+                )
+            else:
+                json_validation_list.append(
+                    {
+                        "image": os.path.abspath(image_file),
+                        "label": os.path.abspath(label_file),
+                        "id": f"sample_{i:05d}",
+                    }
+                )
         if i % 50 == 0:
-            print(f"Saved {i + 1}/{num_samples + num_val_samples} (batch {batch_idx})")
-    # Save dataset metadata
-    data_json["training"] = json_training_list
-    data_json["validation"] = json_validation_list
-    data_json_path = os.path.join(out_dir, "data.json")
-    with open(data_json_path, "w") as f:
-        json.dump(data_json, f, indent=4)
-    print(f"Saved dataset metadata to {data_json_path}")
+            if nnunet_format:
+                print(f"Saved {i + 1}/{num_samples + num_val_samples}")
+            else:
+                print(
+                    f"Saved {i + 1}/{num_samples + num_val_samples} (batch {batch_idx})"
+                )
+
+    # dataset.jsonまたはdata.jsonの保存
+    if nnunet_format:
+        # nnUNet形式のdataset.jsonを生成
+        nnunet_dataset_json = {
+            "channel_names": {
+                "0": "SDF"  # SDFボリュームは1チャネル
+            },
+            "labels": nnunet_labels,
+            "numTraining": num_samples,
+            "file_ending": ".nii.gz",
+        }
+
+        # トレーニングデータセット用のdataset.json
+        dataset_json_path = os.path.join(out_dir, "dataset.json")
+        with open(dataset_json_path, "w") as f:
+            json.dump(nnunet_dataset_json, f, indent=4)
+        print(f"Saved nnUNet dataset.json to {dataset_json_path}")
+
+        # validationデータがある場合は、別のデータセットとして保存
+        if num_val_samples > 0:
+            # validation用の別ディレクトリを作成
+            val_dataset_dir = out_dir.replace(
+                f"Dataset{dataset_id:03d}_{dataset_name}",
+                f"Dataset{dataset_id + 1:03d}_{dataset_name}_Val",
+            )
+
+            # imagesTs と labelsTs を新しいディレクトリに移動
+            if os.path.exists(os.path.join(out_dir, "imagesTs")):
+                import shutil
+
+                os.makedirs(val_dataset_dir, exist_ok=True)
+                shutil.move(
+                    os.path.join(out_dir, "imagesTs"),
+                    os.path.join(val_dataset_dir, "imagesTr"),
+                )
+                shutil.move(
+                    os.path.join(out_dir, "labelsTs"),
+                    os.path.join(val_dataset_dir, "labelsTr"),
+                )
+
+                # validation用のdataset.jsonを生成
+                val_dataset_json = {
+                    "channel_names": {"0": "SDF"},
+                    "labels": nnunet_labels,
+                    "numTraining": num_val_samples,
+                    "file_ending": ".nii.gz",
+                }
+                val_dataset_json_path = os.path.join(val_dataset_dir, "dataset.json")
+                with open(val_dataset_json_path, "w") as f:
+                    json.dump(val_dataset_json, f, indent=4)
+                print(f"Saved validation dataset.json to {val_dataset_json_path}")
+                print(
+                    f"Validation dataset created as separate dataset: {val_dataset_dir}"
+                )
+    else:
+        # 既存のMONAI Decathlon形式のdata.jsonを保存
+        data_json["training"] = json_training_list
+        data_json["validation"] = json_validation_list
+        data_json_path = os.path.join(out_dir, "data.json")
+        with open(data_json_path, "w") as f:
+            json.dump(data_json, f, indent=4)
+        print(f"Saved dataset metadata to {data_json_path}")
 
     # 選択されたプリミティブ情報をログファイルに追記
     if log_file_path and hasattr(ds, "selected_primitive_names"):
@@ -443,12 +549,34 @@ if __name__ == "__main__":
         choices=get_mapper_choices(),
         help=f"SDF mapper functions to use for generating x_vol. Available: {', '.join(get_mapper_choices())}. (default: inverse_cube)",
     )
+    p.add_argument(
+        "--nnunet_format",
+        action="store_true",
+        help="Generate dataset in nnUNet format instead of MONAI Decathlon format. Validation data will be saved as a separate dataset.",
+    )
+    p.add_argument(
+        "--dataset_id",
+        type=int,
+        default=999,
+        help="Dataset ID for nnUNet format (e.g., 999 for Dataset999_Name). Only used with --nnunet_format.",
+    )
+    p.add_argument(
+        "--dataset_name",
+        type=str,
+        default="SDFSynthetic",
+        help="Dataset name for nnUNet format (e.g., 'SDFSynthetic' for Dataset999_SDFSynthetic). Only used with --nnunet_format.",
+    )
     args = p.parse_args()
 
     if not args.out_dir:
-        # 出力ディレクトリが指定されていない場合は、カレントディレクトリに日付と時刻を付けて作成
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        args.out_dir = f"outputs/{timestamp}"
+        # 出力ディレクトリが指定されていない場合
+        if args.nnunet_format:
+            # nnUNet形式の場合: Dataset{ID}_{Name} 形式
+            args.out_dir = f"outputs/Dataset{args.dataset_id:03d}_{args.dataset_name}"
+        else:
+            # MONAI形式の場合: カレントディレクトリに日付と時刻を付けて作成
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            args.out_dir = f"outputs/{timestamp}"
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir, exist_ok=True)
@@ -457,6 +585,12 @@ if __name__ == "__main__":
     log_file = os.path.join(args.out_dir, "generation_log.txt")
     with open(log_file, "w") as f:
         f.write(f"Output directory: {args.out_dir}\n")
+        f.write(
+            f"Output format: {'nnUNet' if args.nnunet_format else 'MONAI Decathlon'}\n"
+        )
+        if args.nnunet_format:
+            f.write(f"Dataset ID: {args.dataset_id:03d}\n")
+            f.write(f"Dataset name: {args.dataset_name}\n")
         f.write(f"Grid size: {args.D}x{args.H}x{args.W}\n")
         f.write(f"Number of samples: {args.num_samples}\n")
         f.write(f"Min objects per sample: {args.min_objects}\n")
@@ -478,6 +612,10 @@ if __name__ == "__main__":
 
     print("Generating dataset with parameters:")
     print(f"  Output directory: {args.out_dir}")
+    print(f"  Output format: {'nnUNet' if args.nnunet_format else 'MONAI Decathlon'}")
+    if args.nnunet_format:
+        print(f"  Dataset ID: {args.dataset_id:03d}")
+        print(f"  Dataset name: {args.dataset_name}")
     print(f"  Grid size: {args.D}x{args.H}x{args.W}")
     print(f"  Number of samples: {args.num_samples}")
     print(f"  Min objects per sample: {args.min_objects}")
@@ -496,7 +634,11 @@ if __name__ == "__main__":
         print(f"  Primitives used: {', '.join(args.primitives)}")
     time_start = time.time()
 
-    data_output_dir = os.path.join(args.out_dir, "data")
+    # nnUNet形式の場合、出力先はargs.out_dir直下、MONAI形式の場合はdata/サブディレクトリ
+    if args.nnunet_format:
+        data_output_dir = args.out_dir
+    else:
+        data_output_dir = os.path.join(args.out_dir, "data")
 
     generate_and_save(
         out_dir=data_output_dir,
@@ -513,6 +655,9 @@ if __name__ == "__main__":
         transform=not args.no_transform,
         num_combined_unions=args.num_combined_unions,
         sdf_mappers=args.sdf_mappers,
+        nnunet_format=args.nnunet_format,
+        dataset_id=args.dataset_id,
+        dataset_name=args.dataset_name,
     )
 
     time_end = time.time()
@@ -529,27 +674,60 @@ if __name__ == "__main__":
         print(f"Visualizing {args.num_visualize} samples...")
         visualize_output = os.path.join(args.out_dir, "visualizations")
         os.makedirs(visualize_output, exist_ok=True)
-        # load output samples at random and visualize
-        output_json_path = os.path.join(data_output_dir, "data.json")
-        with open(output_json_path, "r") as f:
-            data_json = json.load(f)
-        files_path = data_json["training"]
-        random.shuffle(files_path)
-        print(f"Total samples available for visualization: {len(files_path)}")
-        for i in range(min(args.num_visualize, len(files_path))):
-            file_info = files_path[i]
-            image_path = file_info["image"]
-            label_path = file_info["label"]
-            print("loading", image_path, label_path)
-            x = nib.load(image_path).get_fdata()
-            y = nib.load(label_path).get_fdata()
-            print(type(x), x.shape, type(y), y.shape)
-            print(f"Visualizing sample {i + 1}/{args.num_visualize}...")
-            visualize_sample(
-                (x, y),
-                output_file_name=os.path.join(
-                    visualize_output,
-                    f"visualization_{i:05d}.png",
-                ),
+
+        if args.nnunet_format:
+            # nnUNet形式の場合、imagesTrから直接読み込む
+            images_dir = os.path.join(data_output_dir, "imagesTr")
+            labels_dir = os.path.join(data_output_dir, "labelsTr")
+
+            # 全画像ファイルをリスト化
+            image_files = sorted(
+                [f for f in os.listdir(images_dir) if f.endswith("_0000.nii.gz")]
             )
-            print(f"Visualized sample {i + 1}/{args.num_visualize}")
+            random.shuffle(image_files)
+
+            print(f"Total samples available for visualization: {len(image_files)}")
+            for i in range(min(args.num_visualize, len(image_files))):
+                image_filename = image_files[i]
+                case_id = image_filename.replace("_0000.nii.gz", "")
+                image_path = os.path.join(images_dir, image_filename)
+                label_path = os.path.join(labels_dir, f"{case_id}.nii.gz")
+
+                print("loading", image_path, label_path)
+                x = nib.load(image_path).get_fdata()
+                y = nib.load(label_path).get_fdata()
+                print(type(x), x.shape, type(y), y.shape)
+                print(f"Visualizing sample {i + 1}/{args.num_visualize}...")
+                visualize_sample(
+                    (x, y),
+                    output_file_name=os.path.join(
+                        visualize_output,
+                        f"visualization_{i:05d}.png",
+                    ),
+                )
+                print(f"Visualized sample {i + 1}/{args.num_visualize}")
+        else:
+            # MONAI形式の場合、data.jsonから読み込む
+            output_json_path = os.path.join(data_output_dir, "data.json")
+            with open(output_json_path, "r") as f:
+                data_json = json.load(f)
+            files_path = data_json["training"]
+            random.shuffle(files_path)
+            print(f"Total samples available for visualization: {len(files_path)}")
+            for i in range(min(args.num_visualize, len(files_path))):
+                file_info = files_path[i]
+                image_path = file_info["image"]
+                label_path = file_info["label"]
+                print("loading", image_path, label_path)
+                x = nib.load(image_path).get_fdata()
+                y = nib.load(label_path).get_fdata()
+                print(type(x), x.shape, type(y), y.shape)
+                print(f"Visualizing sample {i + 1}/{args.num_visualize}...")
+                visualize_sample(
+                    (x, y),
+                    output_file_name=os.path.join(
+                        visualize_output,
+                        f"visualization_{i:05d}.png",
+                    ),
+                )
+                print(f"Visualized sample {i + 1}/{args.num_visualize}")

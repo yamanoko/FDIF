@@ -4,6 +4,10 @@
 
 `generate_sdf_dataset.py`は、3DセグメンテーションタスクのためのSDF（Signed Distance Function）ベースの合成データセットを生成するPythonスクリプトです。複数の3Dプリミティブ（球、箱、円柱、トーラス）を含む3Dボリュームデータとそのセグメンテーションマスクを自動生成し、医療画像解析やコンピュータビジョンの研究に活用できます。
 
+**2つの出力形式をサポート**:
+- **MONAI Decathlon形式** (デフォルト): MONAIフレームワーク用
+- **nnUNet形式**: nnUNetフレームワーク用（`--nnunet_format`フラグで有効化）
+
 ## 主要機能
 
 ### 1. 3Dプリミティブの生成
@@ -57,12 +61,15 @@ python generate_sdf_dataset.py --out_dir ./output --num_samples 100
 | `--primitives` | 全プリミティブ | 使用するプリミティブ（`sphere`, `box`, `cylinder`, `torus`） |
 | `--seed` | None | 乱数シード（再現性のため） |
 | `--num_visualize` | 0 | 可視化するサンプル数 |
+| `--nnunet_format` | False | nnUNet形式でデータセットを生成 |
+| `--dataset_id` | 999 | nnUNet形式のデータセットID（例: 999で`Dataset999_Name`） |
+| `--dataset_name` | "SDFSynthetic" | nnUNet形式のデータセット名 |
 
 ### 使用例
 
-#### 1. 基本的なデータセット生成
+#### 1. 基本的なデータセット生成（MONAI Decathlon形式）
 ```bash
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./synthetic_dataset \
     --D 96 --H 96 --W 96 \
     --num_samples 500 \
@@ -72,50 +79,71 @@ python generate_sdf_dataset.py \
     --seed 42
 ```
 
-#### 2. 可視化付きデータセット生成
+#### 2. nnUNet形式でデータセット生成
 ```bash
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --nnunet_format \
+    --dataset_id 999 \
+    --dataset_name SDFSynthetic \
+    --D 96 --H 96 --W 96 \
+    --num_samples 500 \
+    --num_val_samples 100 \
+    --min_objects 2 \
+    --max_objects 4 \
+    --seed 42
+```
+
+**nnUNet形式の特徴**:
+- トレーニングデータは `Dataset999_SDFSynthetic/imagesTr/` と `labelsTr/` に保存
+- 検証データは別データセット `Dataset1000_SDFSynthetic_Val/imagesTr/` と `labelsTr/` として保存
+- 画像ファイル名: `case_00000_0000.nii.gz` (nnUNet命名規則に準拠)
+- ラベルファイル名: `case_00000.nii.gz`
+- `dataset.json` にメタデータ（チャネル名、ラベル、サンプル数）を含む
+
+#### 3. 可視化付きデータセット生成
+```bash
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./dataset_with_viz \
     --num_samples 100 \
     --num_visualize 10 \
     --seed 42
 ```
 
-#### 3. 特定のプリミティブのみを使用
+#### 4. 特定のプリミティブのみを使用
 ```bash
 # 球体とボックスのみを使用
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./sphere_box_dataset \
     --primitives sphere box \
     --num_samples 300 \
     --max_objects 6
 
 # 単一プリミティブ（円柱のみ）
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./cylinder_only_dataset \
     --primitives cylinder \
     --num_samples 200 \
     --max_objects 8
 ```
 
-#### 4. 段階的学習用データセット
+#### 5. 段階的学習用データセット
 ```bash
 # レベル1: 単一プリミティブ
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./level1_simple \
     --primitives sphere \
     --max_objects 3 \
     --num_samples 200
 
 # レベル2: 複数プリミティブ
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./level2_medium \
     --primitives sphere box \
     --max_objects 5 \
     --num_samples 300
 
 # レベル3: 全プリミティブ
-python generate_sdf_dataset.py \
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./level3_complex \
     --primitives sphere box cylinder torus \
     --max_objects 8 \
@@ -126,16 +154,22 @@ python generate_sdf_dataset.py \
 
 データセット生成後、以下の構造でファイルが出力されます：
 
+### MONAI Decathlon形式（デフォルト）
+
 ```
 output_directory/
 ├── generation_log.txt              # 生成ログ
 ├── data/
 │   ├── data.json                   # データセットメタデータ
 │   ├── image/                      # SDF強度画像
-│   │   ├── sample_00000_x.nii.gz
+│   │   ├── batch_0000/
+│   │   │   ├── sample_00000_x.nii.gz
+│   │   │   └── ...
 │   │   └── ...
 │   └── label/                      # セグメンテーションマスク
-│       ├── sample_00000_y.nii.gz
+│       ├── batch_0000/
+│       │   ├── sample_00000_y.nii.gz
+│       │   └── ...
 │       └── ...
 └── visualizations/                 # 可視化結果（--num_visualize > 0の場合）
     ├── visualization_00000.png
@@ -143,9 +177,38 @@ output_directory/
     └── ...
 ```
 
+### nnUNet形式（--nnunet_formatを指定した場合）
+
+```
+Dataset999_SDFSynthetic/            # トレーニングデータセット
+├── dataset.json                     # nnUNetメタデータ
+├── imagesTr/                        # トレーニング画像
+│   ├── case_00000_0000.nii.gz
+│   ├── case_00001_0000.nii.gz
+│   └── ...
+├── labelsTr/                        # トレーニングラベル
+│   ├── case_00000.nii.gz
+│   ├── case_00001.nii.gz
+│   └── ...
+├── generation_log.txt               # 生成ログ
+└── visualizations/                  # 可視化結果（--num_visualize > 0の場合）
+    └── ...
+
+Dataset1000_SDFSynthetic_Val/        # 検証データセット（--num_val_samples > 0の場合）
+├── dataset.json                     # nnUNetメタデータ
+├── imagesTr/                        # 検証画像（nnUNet形式ではimageTrとして保存）
+│   ├── case_00500_0000.nii.gz
+│   ├── case_00501_0000.nii.gz
+│   └── ...
+└── labelsTr/                        # 検証ラベル
+    ├── case_00500.nii.gz
+    ├── case_00501.nii.gz
+    └── ...
+```
+
 ## データフォーマット
 
-### data.json
+### MONAI Decathlon形式: data.json
 ```json
 {
     "training": [
@@ -159,9 +222,35 @@ output_directory/
 }
 ```
 
+### nnUNet形式: dataset.json
+```json
+{
+    "channel_names": {
+        "0": "SDF"
+    },
+    "labels": {
+        "background": 0,
+        "Sphere_inverse_cube": 1,
+        "Cylinder_inverse_cube": 2,
+        "Box_inverse_cube": 3,
+        "Torus_inverse_cube": 4
+    },
+    "numTraining": 500,
+    "file_ending": ".nii.gz"
+}
+```
+
+**nnUNet形式の特徴**:
+- `channel_names`: 入力チャネル（この場合はSDFボリュームの1チャネル）
+- `labels`: 各セグメンテーションクラスの名前とID（ハイブリッドプリミティブ名を使用）
+- `numTraining`: トレーニングサンプル数
+- `file_ending`: ファイル拡張子（`.nii.gz`）
+
 ### 画像データ
-- **画像ファイル（*_x.nii.gz）**: SDF値から計算された強度値（0-128の範囲）
-- **ラベルファイル（*_y.nii.gz）**: オブジェクトID（0=背景、1-N=各プリミティブ、Nは選択したプリミティブ数）
+- **MONAI形式 - 画像ファイル（*_x.nii.gz）**: SDF値から計算された強度値（0-128の範囲）
+- **MONAI形式 - ラベルファイル（*_y.nii.gz）**: オブジェクトID（0=背景、1-N=各プリミティブ、Nは選択したプリミティブ数）
+- **nnUNet形式 - 画像ファイル（*_0000.nii.gz）**: SDF値から計算された強度値（0-128の範囲）
+- **nnUNet形式 - ラベルファイル（*.nii.gz）**: オブジェクトID（0=背景、1-N=各ハイブリッドプリミティブ）
 
 ### プリミティブIDマッピング
 選択したプリミティブに応じて、以下のIDが割り当てられます：
