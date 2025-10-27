@@ -141,24 +141,6 @@ from fdslxsdf4seg.torus.star_torus import (
     SevenStarTorus,
     SixStarTorus,
 )
-from fdslxsdf4seg.union.sphere_tube import (
-    FiveStarRevolutionCylinderUnion,
-    FiveStarRevolutionPentagonUnion,
-    FiveStarRevolutionSquareUnion,
-    FiveStarRevolutionTriangleUnion,
-    FourStarRevolutionCylinderUnion,
-    FourStarRevolutionPentagonUnion,
-    FourStarRevolutionSquareUnion,
-    FourStarRevolutionTriangleUnion,
-    SphereCylinderUnion,
-    SpherePentagonUnion,
-    SphereSquareUnion,
-    SphereTriangleUnion,
-    ThreeStarRevolutionCylinderUnion,
-    ThreeStarRevolutionPentagonUnion,
-    ThreeStarRevolutionSquareUnion,
-    ThreeStarRevolutionTriangleUnion,
-)
 
 # プリミティブの名前とクラスのマッピング
 ALL_PRIMITIVES = {
@@ -289,23 +271,6 @@ ALL_PRIMITIVES = {
     "onionedixstarconeprism": OnionedSixStarConePrism,
     "onionedsevenstar coneprism": OnionedSevenStarConePrism,
     "onionedeightstarconeprism": OnionedEightStarConePrism,
-    # Union objects
-    "spheretriangleunion": SphereTriangleUnion,
-    "spheresquareunion": SphereSquareUnion,
-    "spherepentagonunion": SpherePentagonUnion,
-    "spherecylinderunion": SphereCylinderUnion,
-    "threestarrevolutiontriangleunion": ThreeStarRevolutionTriangleUnion,
-    "threestarrevolutionsquareunion": ThreeStarRevolutionSquareUnion,
-    "threestarrevolutionpentagonunion": ThreeStarRevolutionPentagonUnion,
-    "threestarrevolutioncylinderunion": ThreeStarRevolutionCylinderUnion,
-    "fourstarrevolutiontriangleunion": FourStarRevolutionTriangleUnion,
-    "fourstarrevolutionsquareunion": FourStarRevolutionSquareUnion,
-    "fourstarrevolutionpentagonunion": FourStarRevolutionPentagonUnion,
-    "fourstarrevolutioncylinderunion": FourStarRevolutionCylinderUnion,
-    "fivestarrevolutiontriangleunion": FiveStarRevolutionTriangleUnion,
-    "fivestarrevolutionsquareunion": FiveStarRevolutionSquareUnion,
-    "fivestarrevolutionpentagonunion": FiveStarRevolutionPentagonUnion,
-    "fivestarrevolutioncylinderunion": FiveStarRevolutionCylinderUnion,
 }
 
 
@@ -460,24 +425,6 @@ PRIMITIVE_CATEGORIES = {
         "onionedsevenstar coneprism",
         "onionedeightstarconeprism",
     ],
-    "union": [
-        "spheretriangleunion",
-        "spheresquareunion",
-        "spherepentagonunion",
-        "spherecylinderunion",
-        "threestarrevolutiontriangleunion",
-        "threestarrevolutionsquareunion",
-        "threestarrevolutionpentagonunion",
-        "threestarrevolutioncylinderunion",
-        "fourstarrevolutiontriangleunion",
-        "fourstarrevolutionsquareunion",
-        "fourstarrevolutionpentagonunion",
-        "fourstarrevolutioncylinderunion",
-        "fivestarrevolutiontriangleunion",
-        "fivestarrevolutionsquareunion",
-        "fivestarrevolutionpentagonunion",
-        "fivestarrevolutioncylinderunion",
-    ],
 }
 
 
@@ -593,23 +540,6 @@ DEFAULT_PRIMITIVES = [
     "onionedixstarconeprism",
     "onionedsevenstar coneprism",
     "onionedeightstarconeprism",
-    # Union primitives
-    "spheretriangleunion",
-    "spheresquareunion",
-    "spherepentagonunion",
-    "spherecylinderunion",
-    "threestarrevolutiontriangleunion",
-    "threestarrevolutionsquareunion",
-    "threestarrevolutionpentagonunion",
-    "threestarrevolutioncylinderunion",
-    "fourstarrevolutiontriangleunion",
-    "fourstarrevolutionsquareunion",
-    "fourstarrevolutionpentagonunion",
-    "fourstarrevolutioncylinderunion",
-    "fivestarrevolutiontriangleunion",
-    "fivestarrevolutionsquareunion",
-    "fivestarrevolutionpentagonunion",
-    "fivestarrevolutioncylinderunion",
 ]
 
 

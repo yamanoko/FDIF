@@ -928,69 +928,6 @@ class ConcaveSectorPolygonPrism(_ConcavePrismBase):
         return self.poly_base.sdf2d_base(X, Y)
 
 
-class SphereTubeUnion(SmoothUnionBase):
-    def __init__(
-        self,
-        grid_size: List[int],
-        device: torch.device,
-        center=None,
-        transform=False,
-        sphere_radius=None,
-        tube_radius=None,
-        tube_height=None,
-        SphereClass=None,
-        TubeClass=None,
-    ):
-        if SphereClass is None:
-            raise ValueError("SphereClass must be specified.")
-        if TubeClass is None:
-            raise ValueError("TubeClass must be specified.")
-        super().__init__(grid_size, device, center, transform)
-        D, H, W = grid_size
-        perp_min = min([D, H, W][i] for i in range(3) if i != 1)
-        if sphere_radius is None:
-            sphere_radius = perp_min * random.uniform(0.15, 0.40)
-        if tube_height is None:
-            tube_height = perp_min * random.uniform(0.1, 0.5)
-        self.first_sdf = SphereClass(
-            grid_size=grid_size, device=device, center=center, radius=sphere_radius
-        )
-        if tube_radius is None:
-            tube_radius = sphere_radius * random.uniform(0.4, 0.8)
-
-        if issubclass(
-            TubeClass,
-            (
-                SectorPolygonPrism,
-                ConeSectorPolygonPrism,
-                ConvexSectorPolygonPrism,
-                ConcaveSectorPolygonPrism,
-            ),
-        ):
-            self.second_sdf = TubeClass(
-                grid_size=grid_size,
-                device=device,
-                center=center,
-                r2=tube_radius,
-                height=tube_height,
-            )
-        else:
-            self.second_sdf = TubeClass(
-                grid_size=grid_size,
-                device=device,
-                center=center,
-                radius=tube_radius,
-                height=tube_height,
-            )
-        translate_distance = [
-            (i == self.second_sdf.axis)
-            * (tube_height / 2.0 + sphere_radius)
-            * random.uniform(0.6, 0.9)
-            for i in range(3)
-        ]
-        self.second_inv_matrix = self.translate_matrix(*translate_distance).inverse()
-
-
 class CombinedObjectUnion(SmoothUnionBase):
     def __init__(
         self,
