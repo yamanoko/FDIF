@@ -874,6 +874,17 @@ if __name__ == "__main__":
     else:
         print("Training from scratch, no pretrained model loaded.")
     model = model.to(device)
+
+    # Count and log model parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+    with open(training_log_path, "a") as f:
+        f.write(f"Total parameters: {total_params:,}\n")
+        f.write(f"Trainable parameters: {trainable_params:,}\n")
+        f.write("=" * 50 + "\n")
+
     loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(
         model.parameters(), args.learning_rate, weight_decay=1e-5
