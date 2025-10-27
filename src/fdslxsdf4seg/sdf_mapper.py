@@ -135,7 +135,7 @@ class MapperRegistry:
         "linear_slope_20.0": LinearMapper(slope=20.0),
         "linear_slope_10.0": LinearMapper(slope=10.0),
         "floor_width_1.0": FloorMapper(width=1.0),
-        "floor_width_0.5": FloorMapper(width=1.0),
+        "floor_width_0.5": FloorMapper(width=0.5),
         "modular_5": ModularMapper(width=1.0, modulus=5),
         "modular_10": ModularMapper(width=0.5, modulus=10),
         "sinusoidal_wavelength_1.0": SinusoidalMapper(wavelength=1.0),
