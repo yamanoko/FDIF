@@ -189,6 +189,7 @@ def create_model(
     feature_size,
     pretrained_path=None,
     pretraining_out_channel=14,
+    use_checkpoint=False,
 ):
     if model_name == "vnet":
         if pretrained_path:
@@ -241,6 +242,7 @@ def create_model(
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
                 feature_size=feature_size or 48,
+                use_checkpoint=use_checkpoint,
             )
             model.load_state_dict(weights)
             model.out = UnetOutBlock(
@@ -249,13 +251,18 @@ def create_model(
                 out_channels=out_channel,
             )
             print(f"Model {model_name} loaded from {pretrained_path}")
+            if use_checkpoint:
+                print("Gradient checkpointing enabled for SwinUNETR")
         else:
             model = SwinUNETR(
                 in_channels=1,
                 out_channels=out_channel,
                 spatial_dims=3,
                 feature_size=feature_size or 48,
+                use_checkpoint=use_checkpoint,
             )
+            if use_checkpoint:
+                print("Gradient checkpointing enabled for SwinUNETR")
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
@@ -818,6 +825,11 @@ if __name__ == "__main__":
         default=None,
         help="Random seed for reproducibility. If not specified, a random seed will be generated.",
     )
+    p.add_argument(
+        "--use_checkpoint",
+        action="store_true",
+        help="Enable gradient checkpointing for SwinUNETR to reduce memory usage",
+    )
     args = p.parse_args()
 
     # Generate random seed if not specified
@@ -866,6 +878,7 @@ if __name__ == "__main__":
         feature_size=args.feature_size,
         pretrained_path=args.pretrained_model,
         pretraining_out_channel=args.pretraining_out_channel,
+        use_checkpoint=args.use_checkpoint,
     )
     print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
     print(f"Using learning rate: {args.learning_rate}")
