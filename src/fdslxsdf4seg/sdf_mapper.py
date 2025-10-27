@@ -130,9 +130,9 @@ class MapperRegistry:
     _mappers: Dict[str, SDFMapper] = {
         "inverse_cube": InverseCubeMapper(),
         "exponential_base_2.0": ExponentialMapper(base=2.0),
-        "linear_slope_1.0": LinearMapper(slope=1.0),
-        "floor_width_10.0": FloorMapper(width=10.0),
-        "modular_5": ModularMapper(width=5.0, modulus=5),
+        "linear_slope_5.0": LinearMapper(slope=5.0),
+        "floor_width_10.0": FloorMapper(width=1.0),
+        "modular_5": ModularMapper(width=1.0, modulus=5),
         "sinusoidal_wavelength_20.0": SinusoidalMapper(wavelength=20.0),
     }
 
