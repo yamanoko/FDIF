@@ -130,26 +130,6 @@ from src.fdslxsdf4seg.torus.star_torus import (
     SixStarTorus,
 )
 
-# Union プリミティブ
-from src.fdslxsdf4seg.union.sphere_tube import (
-    FiveStarRevolutionCylinderUnion,
-    FiveStarRevolutionPentagonUnion,
-    FiveStarRevolutionSquareUnion,
-    FiveStarRevolutionTriangleUnion,
-    FourStarRevolutionCylinderUnion,
-    FourStarRevolutionPentagonUnion,
-    FourStarRevolutionSquareUnion,
-    FourStarRevolutionTriangleUnion,
-    SphereCylinderUnion,
-    SpherePentagonUnion,
-    SphereSquareUnion,
-    SphereTriangleUnion,
-    ThreeStarRevolutionCylinderUnion,
-    ThreeStarRevolutionPentagonUnion,
-    ThreeStarRevolutionSquareUnion,
-    ThreeStarRevolutionTriangleUnion,
-)
-
 # DEPRECATED: isosurface visualization removed in favor of mesh-only approach
 # def visualize_primitive_3d_isosurface(sdf_data, output_file, name="Primitive"):
 #     """
@@ -1059,17 +1039,6 @@ def generate_primitive_variations(
         "OnionedTrianglePrism": (OnionedTrianglePrism, {"center": (32.0, 32.0, 32.0)}),
         "OnionedSquarePrism": (OnionedSquarePrism, {"center": (32.0, 32.0, 32.0)}),
         "OnionedFiveStarPrism": (OnionedFiveStarPrism, {"center": (32.0, 32.0, 32.0)}),
-        # Union系（代表的なもの）
-        "SphereCylinderUnion": (SphereCylinderUnion, {"center": (32.0, 32.0, 32.0)}),
-        "SphereTriangleUnion": (SphereTriangleUnion, {"center": (32.0, 32.0, 32.0)}),
-        "FiveStarRevolutionCylinderUnion": (
-            FiveStarRevolutionCylinderUnion,
-            {"center": (32.0, 32.0, 32.0)},
-        ),
-        "FiveStarRevolutionPentagonUnion": (
-            FiveStarRevolutionPentagonUnion,
-            {"center": (32.0, 32.0, 32.0)},
-        ),
         # CombinedObjectUnion系
         "CombinedSphereTorusUnion": (
             CombinedObjectUnion,
@@ -1317,22 +1286,6 @@ def get_all_primitive_names():
 
     # Union系
     union_primitives = [
-        "SphereTriangleUnion",
-        "SphereSquareUnion",
-        "SpherePentagonUnion",
-        "SphereCylinderUnion",
-        "ThreeStarRevolutionTriangleUnion",
-        "ThreeStarRevolutionSquareUnion",
-        "ThreeStarRevolutionPentagonUnion",
-        "ThreeStarRevolutionCylinderUnion",
-        "FourStarRevolutionTriangleUnion",
-        "FourStarRevolutionSquareUnion",
-        "FourStarRevolutionPentagonUnion",
-        "FourStarRevolutionCylinderUnion",
-        "FiveStarRevolutionTriangleUnion",
-        "FiveStarRevolutionSquareUnion",
-        "FiveStarRevolutionPentagonUnion",
-        "FiveStarRevolutionCylinderUnion",
         # CombinedObjectUnion primitives
         "CombinedSphereTorusUnion",
         "CombinedSphereCylinderUnion",
@@ -1884,122 +1837,6 @@ def generate_primitive_visualizations(
 
     # Union Primitivesプリミティブ（組み合わせ形状）
     union_primitives = [
-        # Sphere based unions
-        (
-            "SphereTriangleUnion",
-            SphereTriangleUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "SphereSquareUnion",
-            SphereSquareUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "SpherePentagonUnion",
-            SpherePentagonUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "SphereCylinderUnion",
-            SphereCylinderUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        # ThreeStarRevolution based unions
-        (
-            "ThreeStarRevolutionTriangleUnion",
-            ThreeStarRevolutionTriangleUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "ThreeStarRevolutionSquareUnion",
-            ThreeStarRevolutionSquareUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "ThreeStarRevolutionPentagonUnion",
-            ThreeStarRevolutionPentagonUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "ThreeStarRevolutionCylinderUnion",
-            ThreeStarRevolutionCylinderUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        # FourStarRevolution based unions
-        (
-            "FourStarRevolutionTriangleUnion",
-            FourStarRevolutionTriangleUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FourStarRevolutionSquareUnion",
-            FourStarRevolutionSquareUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FourStarRevolutionPentagonUnion",
-            FourStarRevolutionPentagonUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FourStarRevolutionCylinderUnion",
-            FourStarRevolutionCylinderUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        # FiveStarRevolution based unions
-        (
-            "FiveStarRevolutionTriangleUnion",
-            FiveStarRevolutionTriangleUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FiveStarRevolutionSquareUnion",
-            FiveStarRevolutionSquareUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FiveStarRevolutionPentagonUnion",
-            FiveStarRevolutionPentagonUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
-        (
-            "FiveStarRevolutionCylinderUnion",
-            FiveStarRevolutionCylinderUnion,
-            {
-                "center": (32.0, 32.0, 32.0),
-            },
-        ),
         # CombinedObjectUnion primitives
         (
             "CombinedSphereTorusUnion",
