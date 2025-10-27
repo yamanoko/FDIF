@@ -135,25 +135,25 @@ def generate_combined_union_primitives(
             f"At least 2 primitive classes are required, but only {len(available_classes)} available"
         )
 
-    # 最大組み合わせ数でclamp
-    max_combinations = len(available_classes) ** 2
-    num_combinations = min(num_combinations, max_combinations)
+    # 全ての組み合わせを列挙
+    all_combinations = []
+    for first_name, first_class in available_classes:
+        for second_name, second_class in available_classes:
+            all_combinations.append(
+                (first_name, first_class, second_name, second_class)
+            )
 
-    # 2つのプリミティブリストを作成（それぞれランダムにシャッフル）
-    first_classes = available_classes.copy()
-    second_classes = available_classes.copy()
-    random.shuffle(first_classes)
-    random.shuffle(second_classes)
+    # 組み合わせリストをシャッフル
+    random.shuffle(all_combinations)
+
+    # 最大組み合わせ数でclamp
+    num_combinations = min(num_combinations, len(all_combinations))
 
     combined_primitives = {}
 
+    # シャッフルされたリストからnum_combinations個を取り出す
     for i in range(num_combinations):
-        # インデックスの組み合わせで順序よく生成 (0,0), (0,1), (0,2), ..., (1,0), (1,1), ...
-        first_idx = i // len(second_classes)
-        second_idx = i % len(second_classes)
-
-        first_name, first_class = first_classes[first_idx]
-        second_name, second_class = second_classes[second_idx]
+        first_name, first_class, second_name, second_class = all_combinations[i]
 
         # プリミティブ名を生成
         union_name = f"Union_{first_name}_{second_name}_{i:03d}"

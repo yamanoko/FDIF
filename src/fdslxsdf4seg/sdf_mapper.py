@@ -65,7 +65,7 @@ class LinearMapper(SDFMapper):
     """線形マッピング: 128.0 + slope * x"""
 
     def __init__(self, slope: float = 1.0):
-        self.slope = 1.0
+        self.slope = slope
 
     def apply(self, sdfs: torch.Tensor) -> torch.Tensor:
         """線形関数でマッピングして合計を返す"""
@@ -78,12 +78,13 @@ class LinearMapper(SDFMapper):
 
 
 class FloorMapper(SDFMapper):
-    def __init__(self, width: float = 10.0):
+    def __init__(self, width: float = 10.0, decrement: float = 10.0):
         self.width = width
+        self.decrement = decrement
 
     def apply(self, sdfs):
         mask = sdfs > 0.0
-        mapped = -torch.floor(-sdfs / self.width) + 128.0
+        mapped = torch.ceil(sdfs / self.width) * self.decrement + 128.0
         mapped = torch.clamp(mapped, min=0.0, max=128.0)
         return torch.where(mask, torch.zeros_like(mapped), mapped)
 
@@ -130,10 +131,15 @@ class MapperRegistry:
     _mappers: Dict[str, SDFMapper] = {
         "inverse_cube": InverseCubeMapper(),
         "exponential_base_2.0": ExponentialMapper(base=2.0),
-        "linear_slope_5.0": LinearMapper(slope=5.0),
-        "floor_width_10.0": FloorMapper(width=1.0),
+        "exponential_base_1.5": ExponentialMapper(base=1.5),
+        "linear_slope_20.0": LinearMapper(slope=20.0),
+        "linear_slope_10.0": LinearMapper(slope=10.0),
+        "floor_width_1.0": FloorMapper(width=1.0),
+        "floor_width_0.5": FloorMapper(width=1.0),
         "modular_5": ModularMapper(width=1.0, modulus=5),
-        "sinusoidal_wavelength_20.0": SinusoidalMapper(wavelength=20.0),
+        "modular_10": ModularMapper(width=0.5, modulus=10),
+        "sinusoidal_wavelength_1.0": SinusoidalMapper(wavelength=1.0),
+        "sinusoidal_wavelength_3.0": SinusoidalMapper(wavelength=3.0),
     }
 
     @classmethod
