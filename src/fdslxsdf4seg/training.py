@@ -36,6 +36,7 @@ from monai.transforms import (
     ScaleIntensityRanged,
     Spacingd,
 )
+from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
 
 from fdslxsdf4seg.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -293,7 +294,13 @@ class AverageMeter:
         self.avg = np.where(self.count > 0, self.sum / self.count, self.sum)
 
 
-def validation(epoch_iterator_val, global_step, training_log_path, out_channel=14):
+def validation(
+    epoch_iterator_val,
+    global_step,
+    training_log_path,
+    out_channel=14,
+    use_ce_loss=False,
+):
     model.eval()
     run_acc = AverageMeter()
     raw_dice_scores = []
@@ -303,9 +310,19 @@ def validation(epoch_iterator_val, global_step, training_log_path, out_channel=1
             with torch.autocast("cuda"):
                 val_outputs = sliding_window_inference(val_inputs, grid_size, 4, model)
             val_labels_list = decollate_batch(val_labels)
-            val_labels_convert = [
-                post_label(val_label_tensor) for val_label_tensor in val_labels_list
-            ]
+
+            if use_ce_loss:
+                # For CE loss, labels are in (B, 1, D, H, W) format with integer values
+                # Convert to one-hot for Dice metric calculation only
+                val_labels_convert = [
+                    post_label(val_label_tensor) for val_label_tensor in val_labels_list
+                ]
+            else:
+                # For DiceCE loss, labels need to be one-hot
+                val_labels_convert = [
+                    post_label(val_label_tensor) for val_label_tensor in val_labels_list
+                ]
+
             val_outputs_list = decollate_batch(val_outputs)
             val_output_convert = [
                 post_pred(val_pred_tensor) for val_pred_tensor in val_outputs_list
@@ -432,6 +449,7 @@ def train(
     training_log_path,
     out_channel=14,
     is_real_data=True,
+    use_ce_loss=False,
 ):
     model.train()
     epoch_loss = 0
@@ -448,7 +466,16 @@ def train(
 
         with torch.autocast("cuda"):
             logit_map = model(x)
-            loss = loss_function(logit_map, y)
+            if use_ce_loss:
+                # CrossEntropyLoss expects labels in (B, D, H, W) format (no channel dimension)
+                # and logits in (B, C, D, H, W) format
+                y_squeezed = y.squeeze(
+                    1
+                ).long()  # Remove channel dimension and convert to long
+                loss = loss_function(logit_map, y_squeezed)
+            else:
+                # DiceCELoss handles one-hot encoding internally
+                loss = loss_function(logit_map, y)
 
         # Store loss value before cleanup
         loss_value = loss.item()
@@ -483,7 +510,11 @@ def train(
                 val_loader, desc="Validate (X / X Steps) (dice=X.X)", dynamic_ncols=True
             )
             dice_val, dice_scores = validation(
-                epoch_iterator_val, global_step, training_log_path, out_channel
+                epoch_iterator_val,
+                global_step,
+                training_log_path,
+                out_channel,
+                use_ce_loss,
             )
             epoch_loss /= step
             epoch_loss_values.append(epoch_loss)
@@ -830,6 +861,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable gradient checkpointing for SwinUNETR to reduce memory usage",
     )
+    p.add_argument(
+        "--use_ce_loss",
+        action="store_true",
+        help="Use CrossEntropyLoss instead of DiceCELoss to reduce memory usage",
+    )
     args = p.parse_args()
 
     # Generate random seed if not specified
@@ -898,7 +934,14 @@ if __name__ == "__main__":
         f.write(f"Trainable parameters: {trainable_params:,}\n")
         f.write("=" * 50 + "\n")
 
-    loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
+    # Set up loss function based on user choice
+    if args.use_ce_loss:
+        loss_function = CrossEntropyLoss()
+        print("Using CrossEntropyLoss (memory efficient)")
+    else:
+        loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
+        print("Using DiceCELoss")
+
     optimizer = torch.optim.AdamW(
         model.parameters(), args.learning_rate, weight_decay=1e-5
     )
@@ -953,6 +996,7 @@ if __name__ == "__main__":
             training_log_path,
             args.out_channel,
             args.is_real_data,
+            args.use_ce_loss,
         )
     time_end = time.time()
     print(
