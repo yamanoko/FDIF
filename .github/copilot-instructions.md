@@ -175,6 +175,37 @@ src/fdslxsdf4seg/
 3. **Transform flag**: `transform=True` in `SDFObject` enables rotation/shear—needed for diverse synthetic data
 4. **NIfTI orientation**: Real data uses `Orientationd(axcodes="RAS")` preprocessing
 5. **Mapper naming**: Use exact names from `MapperRegistry.MAPPERS` dict keys
+6. **Visualization errors**: `visualize_training_metrics.py` uses safe annotation positioning (offset-based, not multiplication) to prevent matplotlib "Image size too large" errors. Annotation positions are calculated using data range offsets instead of coordinate multiplication to avoid extreme values when data is very small.
+
+## Bug Fixes & Known Issues
+
+### Fixed: Matplotlib "Image size too large" Error (2025-01-11)
+**Problem**: Training failed with `ValueError: Image size of 4034x15379026 pixels is too large` during plot generation.
+
+**Root Cause**: 
+- Annotation position calculation used multiplication (`min_loss * 1.2`, `best_dice * 0.9`) which caused extreme coordinates when values were very small
+- This triggered matplotlib to attempt rendering impossibly large images
+
+**Solution Applied**:
+1. **Safe annotation positioning** in `visualize_training_metrics.py`:
+   - Changed from multiplication-based to offset-based positioning
+   - Calculate positions using data range: `y_offset = max(y_range * 0.1, value * 0.05)`
+   - Uses relative offsets from actual data coordinates
+   
+2. **Input validation**:
+   - Added data length validation in `plot_metrics()` and `save_individual_plots()`
+   - Auto-truncate mismatched array lengths
+   - Skip plotting if empty data provided
+
+3. **Steps calculation fix** in `training.py`:
+   - Corrected steps list generation: `[eval_num * (i + 1) for i in range(len(epoch_loss_values))]`
+   - Previously used incorrect `range()` calculation that could produce oversized lists
+
+**Files Modified**:
+- `src/fdslxsdf4seg/visualize_training_metrics.py`: Lines 47-86 (plot_metrics), 111-175 (save_individual_plots)
+- `src/fdslxsdf4seg/training.py`: Lines 553, 1013 (steps calculation)
+
+**Prevention**: Always use data-range-based offsets for matplotlib annotations, never multiply coordinates directly.
 
 ## Extending the System
 

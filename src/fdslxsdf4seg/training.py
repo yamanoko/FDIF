@@ -547,10 +547,13 @@ def train(
                 torch.save(model.state_dict(), last_model_path)
             print(f"Latest model saved at step {global_step}: {last_model_path}")
 
+            # Calculate steps correctly: [eval_num, eval_num*2, eval_num*3, ...]
+            # This represents the actual global_step values when validation occurred
+            steps_for_plot = [eval_num * (i + 1) for i in range(len(epoch_loss_values))]
             plot_metrics(
                 epoch_loss_values,
                 metric_values,
-                list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
+                steps_for_plot,
                 out_dir,
             )
 
@@ -1004,10 +1007,12 @@ if __name__ == "__main__":
     )
 
     # Save training metrics for visualization
+    # Calculate steps correctly: [eval_num, eval_num*2, eval_num*3, ...]
+    steps_list = [eval_num * (i + 1) for i in range(len(epoch_loss_values))]
     metrics_data = {
         "training_loss": epoch_loss_values,
         "validation_dice": metric_values,
-        "steps": list(range(eval_num, len(epoch_loss_values) * eval_num + 1, eval_num)),
+        "steps": steps_list,
     }
 
     # Save as numpy arrays
