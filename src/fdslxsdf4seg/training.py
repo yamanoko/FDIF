@@ -549,7 +549,10 @@ def train(
 
             # Calculate steps correctly: [eval_num, eval_num*2, eval_num*3, ...]
             # This represents the actual global_step values when validation occurred
-            steps_for_plot = [eval_num * (i + 1) for i in range(len(epoch_loss_values))]
+            # Convert to numpy array for compatibility with plot_metrics
+            steps_for_plot = np.array(
+                [eval_num * (i + 1) for i in range(len(epoch_loss_values))]
+            )
             plot_metrics(
                 epoch_loss_values,
                 metric_values,
@@ -1008,11 +1011,12 @@ if __name__ == "__main__":
 
     # Save training metrics for visualization
     # Calculate steps correctly: [eval_num, eval_num*2, eval_num*3, ...]
-    steps_list = [eval_num * (i + 1) for i in range(len(epoch_loss_values))]
+    # Convert to numpy array for consistency
+    steps_array = np.array([eval_num * (i + 1) for i in range(len(epoch_loss_values))])
     metrics_data = {
         "training_loss": epoch_loss_values,
         "validation_dice": metric_values,
-        "steps": steps_list,
+        "steps": steps_array.tolist(),  # Convert to list for JSON serialization
     }
 
     # Save as numpy arrays
@@ -1026,11 +1030,11 @@ if __name__ == "__main__":
 
     # Create training curves visualization using visualize_training_metrics.py functions
     print("Creating training curves visualization...")
-    print_summary(epoch_loss_values, metric_values, metrics_data["steps"])
+    print_summary(epoch_loss_values, metric_values, steps_array)
 
     # Use the plot_metrics function from visualize_training_metrics.py
     # This will create and save the visualization plots without showing them
-    plot_metrics(epoch_loss_values, metric_values, metrics_data["steps"], out_dir)
+    plot_metrics(epoch_loss_values, metric_values, steps_array, out_dir)
 
     with open(training_log_path, "a") as f:
         f.write(

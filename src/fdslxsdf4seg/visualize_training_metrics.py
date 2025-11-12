@@ -84,17 +84,15 @@ def plot_metrics(training_loss, validation_dice, steps, output_dir):
     ax2.grid(True, alpha=0.3)
     ax2.legend()
 
-    # Add best Dice score annotation with safe position calculation
+    # Add best Dice score annotation with safe position calculation using offset points
     best_dice = np.max(validation_dice)
     best_step = steps[np.argmax(validation_dice)]
-    # Use offset from data coordinates instead of multiplication
-    x_range = steps[-1] - steps[0] if len(steps) > 1 else steps[0]
-    y_range = np.max(validation_dice) - np.min(validation_dice)
-    y_offset = max(y_range * 0.1, best_dice * 0.05)  # Ensure minimum offset
+    # Use offset points (pixels) instead of data coordinates to avoid extreme values
     ax2.annotate(
         f"Best: {best_dice:.4f} at step {best_step}",
         xy=(best_step, best_dice),
-        xytext=(best_step - x_range * 0.2, best_dice - y_offset),
+        xytext=(-80, -40),  # 80 pixels left, 40 pixels down
+        textcoords="offset points",
         arrowprops=dict(arrowstyle="->", color="red"),
         fontsize=12,
         color="red",
@@ -138,17 +136,15 @@ def save_individual_plots(training_loss, validation_dice, steps, output_dir):
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
-    # Add lowest loss annotation with safe position calculation
+    # Add lowest loss annotation with safe position calculation using offset points
     min_loss = np.min(training_loss)
     min_loss_step = steps[np.argmin(training_loss)]
-    # Use offset from data coordinates instead of multiplication
-    x_range = steps[-1] - steps[0] if len(steps) > 1 else steps[0]
-    y_range = np.max(training_loss) - np.min(training_loss)
-    y_offset = max(y_range * 0.1, min_loss * 0.2)  # Ensure minimum offset
+    # Use offset points (pixels) instead of data coordinates to avoid extreme values
     ax1.annotate(
         f"Lowest: {min_loss:.6f} at step {min_loss_step}",
         xy=(min_loss_step, min_loss),
-        xytext=(min_loss_step + x_range * 0.1, min_loss + y_offset),
+        xytext=(50, 30),  # 50 pixels right, 30 pixels up
+        textcoords="offset points",
         arrowprops=dict(arrowstyle="->", color="blue"),
         fontsize=10,
         color="blue",
@@ -169,17 +165,15 @@ def save_individual_plots(training_loss, validation_dice, steps, output_dir):
     ax2.grid(True, alpha=0.3)
     ax2.legend()
 
-    # Add best Dice score annotation with safe position calculation
+    # Add best Dice score annotation with safe position calculation using offset points
     best_dice = np.max(validation_dice)
     best_step = steps[np.argmax(validation_dice)]
-    # Use offset from data coordinates instead of multiplication
-    x_range = steps[-1] - steps[0] if len(steps) > 1 else steps[0]
-    y_range = np.max(validation_dice) - np.min(validation_dice)
-    y_offset = max(y_range * 0.1, best_dice * 0.05)  # Ensure minimum offset
+    # Use offset points (pixels) instead of data coordinates to avoid extreme values
     ax2.annotate(
         f"Best: {best_dice:.4f} at step {best_step}",
         xy=(best_step, best_dice),
-        xytext=(best_step - x_range * 0.2, best_dice - y_offset),
+        xytext=(-80, -40),  # 80 pixels left, 40 pixels down
+        textcoords="offset points",
         arrowprops=dict(arrowstyle="->", color="red"),
         fontsize=10,
         color="red",
