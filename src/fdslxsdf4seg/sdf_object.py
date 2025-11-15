@@ -19,6 +19,7 @@ class SDFObject:
     ):
         self.device = device
         self.grid_size = grid_size  # [D, H, W]
+        self.displacement_function = lambda x, y, z: 0.0
         self.transform = transform
         T, R, S = (
             torch.eye(4, device=self.device),  # 平行移動行列
@@ -59,8 +60,9 @@ class SDFObject:
         x, y, z: meshgrid 上の座標テンソル (shape=(D,H,W))
         戻り値: 各点の signed distance (同shape)
         """
+        displacement = self.displacement_function(x, y, z)
         x, y, z = self.applied_transform(x, y, z)
-        return self._sdf(x, y, z)
+        return self._sdf(x, y, z) + displacement
 
     def _sdf(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         """
@@ -68,6 +70,13 @@ class SDFObject:
         戻り値: 各点の signed distance (同shape)
         """
         raise NotImplementedError
+
+    def set_displacement_function(self, func):
+        """
+        変位関数を設定
+        func: 変位関数 (x,y,z) -> displacement
+        """
+        self.displacement_function = func
 
     def onion(
         self,

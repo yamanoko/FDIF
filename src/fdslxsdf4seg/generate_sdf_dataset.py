@@ -18,6 +18,11 @@ from fdslxsdf4seg.combined_union_primitives import (
     generate_combined_union_primitives,
     generate_hybrid_combined_union_primitives,
 )
+from fdslxsdf4seg.displaced_primitive import (
+    create_displaced_primitives,
+    create_hybrid_displaced_primitives,
+    get_displacement_choices,
+)
 from fdslxsdf4seg.hybrid_primitive import (
     create_hybrid_primitives,
     get_mapper_choices,
@@ -44,6 +49,7 @@ class SDFSegmentationDataset(Dataset):
         transform: bool = True,
         num_combined_unions: int = 0,
         sdf_mappers: Optional[List[str]] = None,
+        displacement_functions: Optional[List[str]] = None,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -73,10 +79,27 @@ class SDFSegmentationDataset(Dataset):
         self.sdf_mappers = sdf_mappers
         self.sdf_mappers_info = sdf_mappers  # ログ出力用
 
+        # Displacement関数の設定
+        self.displacement_functions = displacement_functions or []
+        self.displacement_functions_info = displacement_functions or []  # ログ出力用
+
         # ハイブリッドプリミティブを生成（プリミティブ × マッパーの全組み合わせ）
         self.hybrid_primitives = create_hybrid_primitives(
             selected_primitives, sdf_mappers
         )
+
+        # DisplacedPrimitiveを生成（displacement関数が指定されている場合）
+        self.displaced_primitives = {}
+        self.hybrid_displaced_primitives = {}
+        if displacement_functions:
+            # プリミティブ × displacement関数の組み合わせ
+            self.displaced_primitives = create_displaced_primitives(
+                selected_primitives, displacement_functions
+            )
+            # プリミティブ × displacement関数 × マッパーの組み合わせ
+            self.hybrid_displaced_primitives = create_hybrid_displaced_primitives(
+                selected_primitives, displacement_functions, sdf_mappers
+            )
 
         # CombinedObjectUnionプリミティブを生成
         self.combined_union_primitives = {}
@@ -95,13 +118,18 @@ class SDFSegmentationDataset(Dataset):
                 )
             )
 
-        # class_id, hybrid_primitive (ハイブリッドプリミティブ + ハイブリッドCombinedUnion)
+        # class_id, hybrid_primitive (ハイブリッドプリミティブ + ハイブリッドCombinedUnion + ハイブリッドDisplaced)
         # 1から始まるIDを割り当てる
         self.primitive_classes = {}
         class_id = 1
 
         # ハイブリッドプリミティブを追加
         for hybrid_key, hybrid in self.hybrid_primitives.items():
+            self.primitive_classes[class_id] = hybrid
+            class_id += 1
+
+        # ハイブリッドDisplacedプリミティブを追加
+        for hybrid_key, hybrid in self.hybrid_displaced_primitives.items():
             self.primitive_classes[class_id] = hybrid
             class_id += 1
 
@@ -188,6 +216,7 @@ def generate_and_save(
     transform: bool = True,
     num_combined_unions: int = 0,
     sdf_mappers: Optional[List[str]] = None,
+    displacement_functions: Optional[List[str]] = None,
     nnunet_format: bool = False,
     dataset_id: int = 999,
     dataset_name: str = "SDFSynthetic",
@@ -212,6 +241,7 @@ def generate_and_save(
         transform=transform,
         num_combined_unions=num_combined_unions,
         sdf_mappers=sdf_mappers,
+        displacement_functions=displacement_functions,
     )
 
     # 選択されたプリミティブの詳細情報を表示
@@ -383,10 +413,33 @@ def generate_and_save(
                 f"Actually selected primitives ({len(ds.selected_primitive_names)}): {', '.join(ds.selected_primitive_names)}\n"
             )
             f.write(f"SDF Mappers: {', '.join(ds.sdf_mappers_info)}\n")
+            if ds.displacement_functions_info:
+                f.write(
+                    f"Displacement Functions: {', '.join(ds.displacement_functions_info)}\n"
+                )
             f.write("Primitive class ID mapping:\n")
             for class_id, hybrid in ds.primitive_classes.items():
                 # すべてがハイブリッド
                 f.write(f"  {class_id}: {hybrid.get_display_name()}\n")
+
+            # ハイブリッドDisplacedプリミティブの詳細情報も追加
+            if ds.hybrid_displaced_primitives:
+                f.write(
+                    f"\nHybrid Displaced Primitives ({len(ds.hybrid_displaced_primitives)}):\n"
+                )
+                for (
+                    hybrid_key,
+                    hybrid_displaced,
+                ) in ds.hybrid_displaced_primitives.items():
+                    primitive_name = (
+                        hybrid_displaced.displaced_primitive.primitive_class.__name__
+                    )
+                    displacement_name = hybrid_displaced.displaced_primitive.displacement_function.get_name()
+                    mapper_name = hybrid_displaced.mapper.get_name()
+                    f.write(f"  {hybrid_key}:\n")
+                    f.write(f"    Primitive: {primitive_name}\n")
+                    f.write(f"    Displacement: {displacement_name}\n")
+                    f.write(f"    Mapper: {mapper_name}\n")
 
             # ハイブリッドCombinedUnionプリミティブの詳細情報も追加
             if ds.hybrid_combined_union_primitives:
@@ -550,6 +603,13 @@ if __name__ == "__main__":
         help=f"SDF mapper functions to use for generating x_vol. Available: {', '.join(get_mapper_choices())}. (default: inverse_cube)",
     )
     p.add_argument(
+        "--displacement_functions",
+        nargs="*",
+        default=None,
+        choices=get_displacement_choices(),
+        help=f"Displacement functions to apply to primitives. Available: {', '.join(get_displacement_choices())}. Creates additional classes combining primitives with displacement functions.",
+    )
+    p.add_argument(
         "--nnunet_format",
         action="store_true",
         help="Generate dataset in nnUNet format instead of MONAI Decathlon format. Validation data will be saved as a separate dataset.",
@@ -601,6 +661,10 @@ if __name__ == "__main__":
             f.write(f"SDF Mappers: {', '.join(args.sdf_mappers)}\n")
         else:
             f.write("SDF Mappers: inverse_cube (default)\n")
+        if args.displacement_functions:
+            f.write(
+                f"Displacement Functions: {', '.join(args.displacement_functions)}\n"
+            )
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -626,6 +690,8 @@ if __name__ == "__main__":
         print(f"  SDF Mappers: {', '.join(args.sdf_mappers)}")
     else:
         print("  SDF Mappers: inverse_cube (default)")
+    if args.displacement_functions:
+        print(f"  Displacement Functions: {', '.join(args.displacement_functions)}")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -655,6 +721,7 @@ if __name__ == "__main__":
         transform=not args.no_transform,
         num_combined_unions=args.num_combined_unions,
         sdf_mappers=args.sdf_mappers,
+        displacement_functions=args.displacement_functions,
         nnunet_format=args.nnunet_format,
         dataset_id=args.dataset_id,
         dataset_name=args.dataset_name,

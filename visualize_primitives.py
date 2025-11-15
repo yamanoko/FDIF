@@ -21,6 +21,13 @@ from src.fdslxsdf4seg.basic_sdf import (
     Sphere,
     Torus,
 )
+
+# Displacement関連
+from src.fdslxsdf4seg.displaced_primitive import (
+    create_displaced_primitives,
+    get_displacement_choices,
+)
+from src.fdslxsdf4seg.displacement_functions import DisplacementRegistry
 from src.fdslxsdf4seg.generate_sdf_dataset import (
     visualize_sample,
 )
@@ -59,6 +66,7 @@ from src.fdslxsdf4seg.onioned_prism.onioned_star_polygon_prism import (
     OnionedSixStarConvexPrism,
     OnionedSixStarPrism,
 )
+from src.fdslxsdf4seg.primitive_registry import ALL_PRIMITIVES
 
 # Revolution系
 from src.fdslxsdf4seg.revolution.star_revolution import (
@@ -66,6 +74,7 @@ from src.fdslxsdf4seg.revolution.star_revolution import (
     FourStarRevolution,
     ThreeStarRevolution,
 )
+from src.fdslxsdf4seg.sdf_mapper import InverseCubeMapper
 
 # SDF Object ベースクラス
 from src.fdslxsdf4seg.sdf_object import (
@@ -2017,6 +2026,139 @@ def generate_primitive_visualizations(
             )
 
 
+def generate_displaced_primitive_visualizations(
+    output_dir="visualize_output",
+    primitive_names=None,
+    displacement_names=None,
+    enable_3d=True,
+):
+    """Displacement関数を適用したプリミティブの可視化を生成
+
+    Args:
+        output_dir: 出力ディレクトリ
+        primitive_names: プリミティブ名のリスト（None = 全プリミティブ）
+        displacement_names: displacement関数名のリスト（None = 全displacement）
+        enable_3d: 3D可視化を有効にするかどうか
+    """
+    # 出力ディレクトリを作成
+    displaced_dir = os.path.join(output_dir, "displaced")
+    os.makedirs(displaced_dir, exist_ok=True)
+
+    # グリッドサイズとデバイス設定
+    grid_size = [64, 64, 64]
+    device = torch.device("cpu")
+
+    # 座標メッシュを作成
+    zs = torch.linspace(0, grid_size[0] - 1, grid_size[0], dtype=torch.float32)
+    ys = torch.linspace(0, grid_size[1] - 1, grid_size[1], dtype=torch.float32)
+    xs = torch.linspace(0, grid_size[2] - 1, grid_size[2], dtype=torch.float32)
+    Z, Y, X = torch.meshgrid(zs, ys, xs, indexing="ij")
+
+    # プリミティブクラスを取得
+    if primitive_names is None:
+        # デフォルトは基本プリミティブのみ
+        primitive_classes = [Sphere, Cylinder, Torus, Cone]
+        print("Using default primitives: Sphere, Cylinder, Torus, Cone")
+    else:
+        primitive_classes = []
+        for name in primitive_names:
+            # 小文字に変換してALL_PRIMITIVESから検索
+            name_lower = name.lower()
+            if name_lower in ALL_PRIMITIVES:
+                primitive_classes.append(ALL_PRIMITIVES[name_lower])
+            else:
+                print(f"Warning: Unknown primitive '{name}', skipping...")
+        if not primitive_classes:
+            print("Error: No valid primitives specified")
+            return
+
+    # Displacement関数を取得
+    if displacement_names is None:
+        displacement_names = get_displacement_choices()
+        # "none"は除外
+        displacement_names = [d for d in displacement_names if d != "none"]
+        print(f"Using all displacement functions: {displacement_names}")
+    else:
+        # 指定されたdisplacement関数の検証
+        available = get_displacement_choices()
+        invalid = [d for d in displacement_names if d not in available]
+        if invalid:
+            print(f"Error: Invalid displacement functions: {invalid}")
+            print(f"Available: {available}")
+            return
+
+    # DisplacedPrimitivesを生成
+    displaced_primitives = create_displaced_primitives(
+        primitive_classes, displacement_names
+    )
+
+    print(
+        f"\nGenerating {len(displaced_primitives)} displaced primitive visualizations..."
+    )
+    print(
+        f"  Primitives: {len(primitive_classes)}, Displacements: {len(displacement_names)}"
+    )
+
+    for idx, (displaced_key, displaced_prim) in enumerate(
+        displaced_primitives.items(), 1
+    ):
+        print(
+            f"  [{idx}/{len(displaced_primitives)}] Generating {displaced_prim.get_display_name()}..."
+        )
+
+        # プリミティブをインスタンス化（displacement関数が自動的に設定される）
+        # 基本的な引数のみを渡し、プリミティブ固有のパラメータはデフォルト値を使用
+        try:
+            obj = displaced_prim(
+                center=(32.0, 32.0, 32.0),
+                grid_size=grid_size,
+                device=device,
+                transform=True,  # ランダムな変形を有効化
+            )
+        except TypeError:
+            # radiusが必要なプリミティブの場合
+            try:
+                obj = displaced_prim(
+                    center=(32.0, 32.0, 32.0),
+                    radius=12.0,
+                    grid_size=grid_size,
+                    device=device,
+                    transform=True,
+                )
+            except TypeError as e:
+                print(f"    Skipping due to initialization error: {e}")
+                continue
+
+        # SDFを計算（displacement関数が自動的に適用される）
+        sdf_data = obj.sdf(X, Y, Z)
+
+        # マッパーを適用してデータセット生成時と同じ形式に変換
+        mapper = InverseCubeMapper()
+        intensity_data = mapper.apply(sdf_data).cpu().numpy()
+
+        # ラベルマスクを作成（単一オブジェクト: SDF <= 0の領域を1に）
+        sdf_numpy = sdf_data.cpu().numpy()
+        label_mask = np.zeros_like(sdf_numpy, dtype=np.int32)
+        label_mask[sdf_numpy <= 0] = 1  # オブジェクト内部を1に設定
+
+        # 2D可視化（スライス）
+        slice_output = os.path.join(displaced_dir, f"{displaced_key}_slices.png")
+        sample = (intensity_data, label_mask)
+        visualize_sample(sample, slice_output)
+
+        # 3D可視化（Marching Cubes）
+        if enable_3d:
+            mesh_output = os.path.join(displaced_dir, f"{displaced_key}_mesh.html")
+            visualize_primitive_marching_cubes(
+                sdf_numpy, mesh_output, displaced_prim.get_display_name()
+            )
+
+    print(
+        f"\n✅ Generated {len(displaced_primitives)} displaced primitive visualizations"
+    )
+    print(f"   Output directory: {displaced_dir}")
+
+
 def generate_dataset_samples(
     output_dir="visualize_output",
     num_samples=5,
@@ -2363,11 +2505,51 @@ if __name__ == "__main__":
         action="store_true",
         help="List all available primitive names and exit",
     )
+    parser.add_argument(
+        "--displaced",
+        action="store_true",
+        help="Generate displaced primitive visualizations (primitives with displacement functions)",
+    )
+    parser.add_argument(
+        "--displaced_primitives",
+        nargs="*",
+        default=None,
+        help="Specific primitives to use for displacement (e.g., Sphere Cylinder). If not specified, uses default primitives.",
+    )
+    parser.add_argument(
+        "--displacement_functions",
+        nargs="*",
+        default=None,
+        help="Specific displacement functions to use (e.g., sine perlin). If not specified, uses all available.",
+    )
+    parser.add_argument(
+        "--list_displacements",
+        action="store_true",
+        help="List all available displacement functions and exit",
+    )
 
     args = parser.parse_args()
 
     if args.help_combine:
         print_combine_usage_examples()
+        exit(0)
+
+    if args.list_displacements:
+        available_displacements = get_displacement_choices()
+        print(
+            f"\n=== Available Displacement Functions ({len(available_displacements)} total) ==="
+        )
+        for i, disp_name in enumerate(available_displacements, 1):
+            disp_func = DisplacementRegistry.get(disp_name)
+            print(f"  {i:2d}. {disp_name:20s} - {disp_func.__class__.__name__}")
+        print("\n💡 Usage Example:")
+        print(
+            "   python visualize_primitives.py --displaced --displaced_primitives Sphere Cylinder --displacement_functions sine perlin"
+        )
+        print(
+            "   python visualize_primitives.py --displaced --displacement_functions sine  # Uses default primitives"
+        )
+        print()
         exit(0)
 
     if args.list_all_primitives:
@@ -2438,9 +2620,15 @@ if __name__ == "__main__":
     if args.combine_all_primitives:
         args.combine = True
 
-    if not (args.primitives or args.dataset or args.variations or args.combine):
+    if not (
+        args.primitives
+        or args.dataset
+        or args.variations
+        or args.combine
+        or args.displaced
+    ):
         print(
-            "Please specify --primitives, --dataset, --variations, --combine, --combine_all_primitives, or --all"
+            "Please specify --primitives, --dataset, --variations, --combine, --displaced, --combine_all_primitives, or --all"
         )
         parser.print_help()
         exit(1)
@@ -2488,6 +2676,16 @@ if __name__ == "__main__":
         enable_3d = getattr(args, "3d", False)
         generate_primitive_variations(
             args.output_dir, args.variation_primitive, args.num_variations, enable_3d
+        )
+
+    if args.displaced:
+        # 3D可視化はデフォルトで有効
+        enable_3d = getattr(args, "3d", True)
+        generate_displaced_primitive_visualizations(
+            output_dir=args.output_dir,
+            primitive_names=args.displaced_primitives,
+            displacement_names=args.displacement_functions,
+            enable_3d=enable_3d,
         )
 
     if args.combine:
