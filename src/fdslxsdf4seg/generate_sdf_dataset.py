@@ -23,6 +23,7 @@ from fdslxsdf4seg.displaced_primitive import (
     create_hybrid_displaced_primitives,
     get_displacement_choices,
 )
+from fdslxsdf4seg.displacement_functions import DisplacementRegistry
 from fdslxsdf4seg.hybrid_primitive import (
     create_hybrid_primitives,
     get_mapper_choices,
@@ -33,6 +34,7 @@ from fdslxsdf4seg.primitive_registry import (
     get_primitive_choices,
     select_primitives,
 )
+from fdslxsdf4seg.sdf_mapper import MapperRegistry
 
 
 class SDFSegmentationDataset(Dataset):
@@ -50,6 +52,8 @@ class SDFSegmentationDataset(Dataset):
         num_combined_unions: int = 0,
         sdf_mappers: Optional[List[str]] = None,
         displacement_functions: Optional[List[str]] = None,
+        mapper_as_augmentation: bool = False,
+        displacement_as_augmentation: bool = False,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -83,23 +87,49 @@ class SDFSegmentationDataset(Dataset):
         self.displacement_functions = displacement_functions or []
         self.displacement_functions_info = displacement_functions or []  # ログ出力用
 
-        # ハイブリッドプリミティブを生成（プリミティブ × マッパーの全組み合わせ）
-        self.hybrid_primitives = create_hybrid_primitives(
-            selected_primitives, sdf_mappers
+        # Augmentationモードの設定
+        self.mapper_as_augmentation = mapper_as_augmentation
+        self.displacement_as_augmentation = displacement_as_augmentation
+
+        # Augmentationモード用：マッパーとDisplacement関数のインスタンスを保持
+        self.mapper_instances = [MapperRegistry.get(name) for name in sdf_mappers]
+        self.displacement_instances = (
+            [DisplacementRegistry.get(name) for name in displacement_functions]
+            if displacement_functions
+            else []
         )
+
+        # ハイブリッドプリミティブを生成（プリミティブ × マッパーの全組み合わせ）
+        # mapper_as_augmentationがTrueの場合はデフォルトのマッパーのみを使用
+        if mapper_as_augmentation:
+            self.hybrid_primitives = create_hybrid_primitives(
+                selected_primitives,
+                ["inverse_cube"],  # デフォルトマッパーのみ
+            )
+        else:
+            self.hybrid_primitives = create_hybrid_primitives(
+                selected_primitives, sdf_mappers
+            )
 
         # DisplacedPrimitiveを生成（displacement関数が指定されている場合）
         self.displaced_primitives = {}
         self.hybrid_displaced_primitives = {}
-        if displacement_functions:
+        # displacement_as_augmentationがTrueの場合、クラスとしては生成しない
+        if displacement_functions and not displacement_as_augmentation:
             # プリミティブ × displacement関数の組み合わせ
             self.displaced_primitives = create_displaced_primitives(
                 selected_primitives, displacement_functions
             )
             # プリミティブ × displacement関数 × マッパーの組み合わせ
-            self.hybrid_displaced_primitives = create_hybrid_displaced_primitives(
-                selected_primitives, displacement_functions, sdf_mappers
-            )
+            if mapper_as_augmentation:
+                # マッパーがAugmentationの場合、デフォルトマッパーのみ
+                self.hybrid_displaced_primitives = create_hybrid_displaced_primitives(
+                    selected_primitives, displacement_functions, ["inverse_cube"]
+                )
+            else:
+                self.hybrid_displaced_primitives = create_hybrid_displaced_primitives(
+                    selected_primitives, displacement_functions, sdf_mappers
+                )
 
         # CombinedObjectUnionプリミティブを生成
         self.combined_union_primitives = {}
@@ -111,12 +141,20 @@ class SDFSegmentationDataset(Dataset):
                 seed=None,  # ここでシードを設定することも可能
             )
             # CombinedUnionプリミティブ × マッパーのハイブリッドを生成
-            self.hybrid_combined_union_primitives = (
-                generate_hybrid_combined_union_primitives(
-                    combined_union_primitives=self.combined_union_primitives,
-                    mapper_names=sdf_mappers,
+            if mapper_as_augmentation:
+                self.hybrid_combined_union_primitives = (
+                    generate_hybrid_combined_union_primitives(
+                        combined_union_primitives=self.combined_union_primitives,
+                        mapper_names=["inverse_cube"],
+                    )
                 )
-            )
+            else:
+                self.hybrid_combined_union_primitives = (
+                    generate_hybrid_combined_union_primitives(
+                        combined_union_primitives=self.combined_union_primitives,
+                        mapper_names=sdf_mappers,
+                    )
+                )
 
         # class_id, hybrid_primitive (ハイブリッドプリミティブ + ハイブリッドCombinedUnion + ハイブリッドDisplaced)
         # 1から始まるIDを割り当てる
@@ -128,7 +166,7 @@ class SDFSegmentationDataset(Dataset):
             self.primitive_classes[class_id] = hybrid
             class_id += 1
 
-        # ハイブリッドDisplacedプリミティブを追加
+        # ハイブリッドDisplacedプリミティブを追加（displacement_as_augmentationがFalseの場合のみ）
         for hybrid_key, hybrid in self.hybrid_displaced_primitives.items():
             self.primitive_classes[class_id] = hybrid
             class_id += 1
@@ -159,9 +197,23 @@ class SDFSegmentationDataset(Dataset):
                 transform=self.transform,
             )
 
+            # displacement_as_augmentationがTrueの場合、ランダムにdisplacementを適用
+            if self.displacement_as_augmentation and self.displacement_instances:
+                # Noneを含めた選択肢から均等な確率で選択（Noneは適用しないを意味）
+                choices = self.displacement_instances + [None]
+                displacement = random.choice(choices)
+                if displacement is not None:
+                    obj.set_displacement_function(displacement.apply)
+
             s = obj.sdf(self.X, self.Y, self.Z)
             sdfs.append(s)
-            mappers.append(hybrid.mapper)  # 各プリミティブのマッパーを記録
+
+            # mapper_as_augmentationがTrueの場合、ランダムにマッパーを選択
+            if self.mapper_as_augmentation:
+                mapper = random.choice(self.mapper_instances)
+            else:
+                mapper = hybrid.mapper
+            mappers.append(mapper)
 
         # x_volをマッパーで計算（複数のマッパーを混在させる設計）
         # 各SDFに対応するマッパーを適用して、マッピング済みのSDF値を生成
@@ -220,6 +272,8 @@ def generate_and_save(
     nnunet_format: bool = False,
     dataset_id: int = 999,
     dataset_name: str = "SDFSynthetic",
+    mapper_as_augmentation: bool = False,
+    displacement_as_augmentation: bool = False,
 ):
     if seed is not None:
         random.seed(seed)
@@ -242,10 +296,20 @@ def generate_and_save(
         num_combined_unions=num_combined_unions,
         sdf_mappers=sdf_mappers,
         displacement_functions=displacement_functions,
+        mapper_as_augmentation=mapper_as_augmentation,
+        displacement_as_augmentation=displacement_as_augmentation,
     )
 
     # 選択されたプリミティブの詳細情報を表示
     print(f"Dataset created with {len(ds.primitive_classes)} primitive classes:")
+    if mapper_as_augmentation:
+        print(
+            f"  (Mapper as augmentation: {', '.join(sdf_mappers or ['inverse_cube'])})"
+        )
+    if displacement_as_augmentation:
+        print(
+            f"  (Displacement as augmentation: {', '.join(displacement_functions or [])})"
+        )
     for class_id, hybrid in ds.primitive_classes.items():
         # すべてがハイブリッド（ハイブリッドプリミティブまたはハイブリッドCombinedUnion）
         print(f"  Class {class_id}: {hybrid.get_display_name()}")
@@ -421,6 +485,14 @@ def generate_and_save(
             for class_id, hybrid in ds.primitive_classes.items():
                 # すべてがハイブリッド
                 f.write(f"  {class_id}: {hybrid.get_display_name()}\n")
+
+            # Augmentationモードの情報を追加
+            if ds.mapper_as_augmentation:
+                f.write(f"\nMapper as augmentation: {', '.join(ds.sdf_mappers_info)}\n")
+            if ds.displacement_as_augmentation:
+                f.write(
+                    f"Displacement as augmentation: {', '.join(ds.displacement_functions_info)}\n"
+                )
 
             # ハイブリッドDisplacedプリミティブの詳細情報も追加
             if ds.hybrid_displaced_primitives:
@@ -610,6 +682,16 @@ if __name__ == "__main__":
         help=f"Displacement functions to apply to primitives. Available: {', '.join(get_displacement_choices())}. Creates additional classes combining primitives with displacement functions.",
     )
     p.add_argument(
+        "--mapper_as_augmentation",
+        action="store_true",
+        help="Treat SDF mappers as data augmentation instead of creating separate classes. Each object randomly uses one of the specified mappers, but all objects of the same primitive type share the same class ID.",
+    )
+    p.add_argument(
+        "--displacement_as_augmentation",
+        action="store_true",
+        help="Treat displacement functions as data augmentation instead of creating separate classes. Each object has 50%% chance to randomly apply one of the specified displacements, but class ID is determined only by primitive type.",
+    )
+    p.add_argument(
         "--nnunet_format",
         action="store_true",
         help="Generate dataset in nnUNet format instead of MONAI Decathlon format. Validation data will be saved as a separate dataset.",
@@ -661,10 +743,12 @@ if __name__ == "__main__":
             f.write(f"SDF Mappers: {', '.join(args.sdf_mappers)}\n")
         else:
             f.write("SDF Mappers: inverse_cube (default)\n")
+        f.write(f"Mapper as augmentation: {args.mapper_as_augmentation}\n")
         if args.displacement_functions:
             f.write(
                 f"Displacement Functions: {', '.join(args.displacement_functions)}\n"
             )
+        f.write(f"Displacement as augmentation: {args.displacement_as_augmentation}\n")
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -690,8 +774,10 @@ if __name__ == "__main__":
         print(f"  SDF Mappers: {', '.join(args.sdf_mappers)}")
     else:
         print("  SDF Mappers: inverse_cube (default)")
+    print(f"  Mapper as augmentation: {args.mapper_as_augmentation}")
     if args.displacement_functions:
         print(f"  Displacement Functions: {', '.join(args.displacement_functions)}")
+    print(f"  Displacement as augmentation: {args.displacement_as_augmentation}")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -725,6 +811,8 @@ if __name__ == "__main__":
         nnunet_format=args.nnunet_format,
         dataset_id=args.dataset_id,
         dataset_name=args.dataset_name,
+        mapper_as_augmentation=args.mapper_as_augmentation,
+        displacement_as_augmentation=args.displacement_as_augmentation,
     )
 
     time_end = time.time()
