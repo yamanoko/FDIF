@@ -54,6 +54,7 @@ class SDFSegmentationDataset(Dataset):
         displacement_functions: Optional[List[str]] = None,
         mapper_as_augmentation: bool = False,
         displacement_as_augmentation: bool = False,
+        multi_task: bool = False,
     ):
         self.D, self.H, self.W = grid_size
         self.num_volumes = num_volumes
@@ -179,6 +180,85 @@ class SDFSegmentationDataset(Dataset):
         self.max_o = max_objects  # 最大オブジェクト数の制限を削除
         self.transform = transform  # 変形を適用するかどうか
 
+        # マルチタスクモードの設定
+        self.multi_task = multi_task
+
+        # マルチタスク用のクラスマッピングを構築
+        if multi_task:
+            self._build_multi_task_mappings()
+
+    def _build_multi_task_mappings(self):
+        """マルチタスク学習用のタスク別クラスマッピングを構築
+
+        タスクの組み合わせは displacement_functions と sdf_mappers の指定で決定:
+        - displacement指定あり + mapper1種類のみ: 2タスク (shape, displacement)
+        - displacement指定なし + mapper複数: 2タスク (shape, mapper)
+        - displacement指定あり + mapper複数: 3タスク (shape, displacement, mapper)
+
+        shape_classes: {"background": 0, "Sphere": 1, "Cylinder": 2, ...}
+        displacement_classes: {"background": 0, "none": 1, "perlin": 2, ...}
+        mapper_classes: {"background": 0, "inverse_cube": 1, ...}
+        """
+        # 全ハイブリッドプリミティブからユニークなコンポーネントを収集
+        shape_names = set()
+        displacement_names = set()
+        mapper_names = set()
+
+        for hybrid in self.primitive_classes.values():
+            shape_names.add(hybrid.get_shape_name())
+            displacement_names.add(hybrid.get_displacement_name())
+            mapper_names.add(hybrid.get_mapper_name())
+
+        # Displacementタスクが必要かどうかを判定
+        # "none"以外のdisplacementが存在する場合
+        has_displacement_task = any(name != "none" for name in displacement_names)
+        self.has_displacement_task = has_displacement_task
+
+        # Mapperタスクが必要かどうかを判定
+        # 複数のmapperが存在する場合（1種類のみならタスクとして不要）
+        has_mapper_task = len(mapper_names) > 1
+        self.has_mapper_task = has_mapper_task
+
+        # タスク名リストを構築（training.pyと同期するため）
+        if has_displacement_task and has_mapper_task:
+            self.task_names = ["shape", "displacement", "mapper"]
+        elif has_displacement_task:
+            self.task_names = ["shape", "displacement"]
+        else:
+            self.task_names = ["shape", "mapper"]
+
+        # ソートしてクラスIDを割り当て（再現性のため）
+        # Shape: 0=background, 1以降=形状
+        self.shape_classes = {"background": 0}
+        for i, name in enumerate(sorted(shape_names), start=1):
+            self.shape_classes[name] = i
+
+        # Displacement: 0=background（オブジェクト外）, 1=none（適用なし）, 2以降=displacement関数
+        # has_displacement_taskがFalseでも、hybrid_to_task_ids用に作成
+        self.displacement_classes = {"background": 0, "none": 1}
+        disp_id = 2
+        for name in sorted(displacement_names):
+            if name != "none":
+                self.displacement_classes[name] = disp_id
+                disp_id += 1
+
+        # Mapper: 0=background（オブジェクト外）, 1以降=マッパー
+        self.mapper_classes = {"background": 0}
+        for i, name in enumerate(sorted(mapper_names), start=1):
+            self.mapper_classes[name] = i
+
+        # 逆引き辞書を作成（primitive_classesの各ハイブリッドのタスク別IDを取得するため）
+        self.hybrid_to_task_ids = {}
+        for class_id, hybrid in self.primitive_classes.items():
+            shape_id = self.shape_classes[hybrid.get_shape_name()]
+            disp_id = self.displacement_classes[hybrid.get_displacement_name()]
+            mapper_id = self.mapper_classes[hybrid.get_mapper_name()]
+            self.hybrid_to_task_ids[class_id] = {
+                "shape": shape_id,
+                "displacement": disp_id,
+                "mapper": mapper_id,
+            }
+
     def __len__(self):
         return self.num_volumes
 
@@ -249,6 +329,40 @@ class SDFSegmentationDataset(Dataset):
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
+        # マルチタスクモードの場合、(N, D, H, W)形状のラベルを返す
+        # Nはタスク数（2または3）
+        if self.multi_task:
+            # 全タスクのラベルを一度に計算
+            y_shape = torch.zeros(
+                (self.D, self.H, self.W), dtype=torch.int64, device=self.device
+            )
+            y_displacement = torch.zeros(
+                (self.D, self.H, self.W), dtype=torch.int64, device=self.device
+            )
+            y_mapper = torch.zeros(
+                (self.D, self.H, self.W), dtype=torch.int64, device=self.device
+            )
+
+            for i, obj_id in enumerate(primitive_ids):
+                mask = sdfs[i] <= 0
+                task_ids = self.hybrid_to_task_ids[obj_id]
+                y_shape[mask] = task_ids["shape"]
+                y_displacement[mask] = task_ids["displacement"]
+                y_mapper[mask] = task_ids["mapper"]
+
+            # タスクの組み合わせに応じて返すラベルを決定
+            if self.has_displacement_task and self.has_mapper_task:
+                # 3タスク: shape, displacement, mapper
+                y_vol_multi = torch.stack([y_shape, y_displacement, y_mapper], dim=0)
+            elif self.has_displacement_task:
+                # 2タスク: shape, displacement
+                y_vol_multi = torch.stack([y_shape, y_displacement], dim=0)
+            else:
+                # 2タスク: shape, mapper
+                y_vol_multi = torch.stack([y_shape, y_mapper], dim=0)
+
+            return x_vol.cpu().numpy(), y_vol_multi.cpu().numpy()
+
         return x_vol.cpu().numpy(), y_vol.cpu().numpy()
 
 
@@ -274,6 +388,7 @@ def generate_and_save(
     dataset_name: str = "SDFSynthetic",
     mapper_as_augmentation: bool = False,
     displacement_as_augmentation: bool = False,
+    multi_task: bool = False,
 ):
     if seed is not None:
         random.seed(seed)
@@ -298,6 +413,7 @@ def generate_and_save(
         displacement_functions=displacement_functions,
         mapper_as_augmentation=mapper_as_augmentation,
         displacement_as_augmentation=displacement_as_augmentation,
+        multi_task=multi_task,
     )
 
     # 選択されたプリミティブの詳細情報を表示
@@ -410,14 +526,42 @@ def generate_and_save(
     # dataset.jsonまたはdata.jsonの保存
     if nnunet_format:
         # nnUNet形式のdataset.jsonを生成
-        nnunet_dataset_json = {
-            "channel_names": {
-                "0": "SDF"  # SDFボリュームは1チャネル
-            },
-            "labels": nnunet_labels,
-            "numTraining": num_samples,
-            "file_ending": ".nii.gz",
-        }
+        if multi_task:
+            # マルチタスク形式のdataset.json（タスク数に応じて動的に構築）
+            tasks_dict = {
+                "shape": {
+                    "labels": ds.shape_classes,
+                },
+            }
+            if ds.has_displacement_task:
+                tasks_dict["displacement"] = {
+                    "labels": ds.displacement_classes,
+                }
+            if ds.has_mapper_task:
+                tasks_dict["mapper"] = {
+                    "labels": ds.mapper_classes,
+                }
+
+            nnunet_dataset_json = {
+                "channel_names": {
+                    "0": "SDF"  # SDFボリュームは1チャネル
+                },
+                "tasks": tasks_dict,
+                # nnU-Net互換用ダミーラベル（plan_and_preprocessで必要）
+                "labels": {"background": 0, "foreground": 1},
+                "numTraining": num_samples,
+                "file_ending": ".nii.gz",
+            }
+        else:
+            # 通常の単一タスク形式
+            nnunet_dataset_json = {
+                "channel_names": {
+                    "0": "SDF"  # SDFボリュームは1チャネル
+                },
+                "labels": nnunet_labels,
+                "numTraining": num_samples,
+                "file_ending": ".nii.gz",
+            }
 
         # トレーニングデータセット用のdataset.json
         dataset_json_path = os.path.join(out_dir, "dataset.json")
@@ -448,12 +592,37 @@ def generate_and_save(
                 )
 
                 # validation用のdataset.jsonを生成
-                val_dataset_json = {
-                    "channel_names": {"0": "SDF"},
-                    "labels": nnunet_labels,
-                    "numTraining": num_val_samples,
-                    "file_ending": ".nii.gz",
-                }
+                if multi_task:
+                    # マルチタスク形式（タスク数に応じて動的に構築）
+                    val_tasks_dict = {
+                        "shape": {
+                            "labels": ds.shape_classes,
+                        },
+                    }
+                    if ds.has_displacement_task:
+                        val_tasks_dict["displacement"] = {
+                            "labels": ds.displacement_classes,
+                        }
+                    if ds.has_mapper_task:
+                        val_tasks_dict["mapper"] = {
+                            "labels": ds.mapper_classes,
+                        }
+
+                    val_dataset_json = {
+                        "channel_names": {"0": "SDF"},
+                        "tasks": val_tasks_dict,
+                        "labels": {"background": 0, "foreground": 1},
+                        "numTraining": num_val_samples,
+                        "file_ending": ".nii.gz",
+                    }
+                else:
+                    # 通常の単一タスク形式
+                    val_dataset_json = {
+                        "channel_names": {"0": "SDF"},
+                        "labels": nnunet_labels,
+                        "numTraining": num_val_samples,
+                        "file_ending": ".nii.gz",
+                    }
                 val_dataset_json_path = os.path.join(val_dataset_dir, "dataset.json")
                 with open(val_dataset_json_path, "w") as f:
                     json.dump(val_dataset_json, f, indent=4)
@@ -465,6 +634,36 @@ def generate_and_save(
         # 既存のMONAI Decathlon形式のdata.jsonを保存
         data_json["training"] = json_training_list
         data_json["validation"] = json_validation_list
+
+        # マルチタスクモードの場合、タスク情報を追加
+        if multi_task:
+            data_json["multi_task"] = True
+            # タスク数に応じて動的に構築
+            data_tasks_dict = {
+                "shape": {
+                    "labels": ds.shape_classes,
+                },
+            }
+            if ds.has_displacement_task:
+                data_tasks_dict["displacement"] = {
+                    "labels": ds.displacement_classes,
+                }
+            if ds.has_mapper_task:
+                data_tasks_dict["mapper"] = {
+                    "labels": ds.mapper_classes,
+                }
+            data_json["tasks"] = data_tasks_dict
+
+            num_tasks = len(ds.task_names)
+            print(
+                f"Multi-task information added to data.json ({num_tasks} tasks: {ds.task_names}):"
+            )
+            print(f"  Shape classes: {len(ds.shape_classes)}")
+            if ds.has_displacement_task:
+                print(f"  Displacement classes: {len(ds.displacement_classes)}")
+            if ds.has_mapper_task:
+                print(f"  Mapper classes: {len(ds.mapper_classes)}")
+
         data_json_path = os.path.join(out_dir, "data.json")
         with open(data_json_path, "w") as f:
             json.dump(data_json, f, indent=4)
@@ -531,6 +730,29 @@ def generate_and_save(
                     f.write(f"    Mapper: {mapper_name}\n")
                     f.write(f"    First params: {combined_union.first_params}\n")
                     f.write(f"    Second params: {combined_union.second_params}\n")
+
+            # マルチタスクモードの情報を追加
+            if ds.multi_task:
+                f.write("\n=== Multi-Task Mode ===\n")
+                f.write(f"Task names: {ds.task_names}\n")
+                f.write(f"Number of tasks: {len(ds.task_names)}\n")
+                f.write(f"Shape classes ({len(ds.shape_classes)}):\n")
+                for name, class_id in sorted(
+                    ds.shape_classes.items(), key=lambda x: x[1]
+                ):
+                    f.write(f"  {class_id}: {name}\n")
+                if ds.has_displacement_task:
+                    f.write(f"Displacement classes ({len(ds.displacement_classes)}):\n")
+                    for name, class_id in sorted(
+                        ds.displacement_classes.items(), key=lambda x: x[1]
+                    ):
+                        f.write(f"  {class_id}: {name}\n")
+                if ds.has_mapper_task:
+                    f.write(f"Mapper classes ({len(ds.mapper_classes)}):\n")
+                    for name, class_id in sorted(
+                        ds.mapper_classes.items(), key=lambda x: x[1]
+                    ):
+                        f.write(f"  {class_id}: {name}\n")
 
     print("Done.")
 
@@ -708,7 +930,23 @@ if __name__ == "__main__":
         default="SDFSynthetic",
         help="Dataset name for nnUNet format (e.g., 'SDFSynthetic' for Dataset999_SDFSynthetic). Only used with --nnunet_format.",
     )
+    p.add_argument(
+        "--multi_task",
+        action="store_true",
+        help="Generate multi-task labels for multi-task learning. Creates separate label channels for shape, displacement, and mapper. "
+        "For MONAI format: adds 'multi_task' and 'tasks' info to data.json. "
+        "For nnUNet format: generates nnU-Net compatible multi-task dataset. "
+        "Cannot be used with --mapper_as_augmentation or --displacement_as_augmentation.",
+    )
     args = p.parse_args()
+
+    # バリデーション: multi_taskとaugmentationモードは併用不可
+    if args.multi_task and args.mapper_as_augmentation:
+        print("Error: --multi_task cannot be used with --mapper_as_augmentation")
+        exit(1)
+    if args.multi_task and args.displacement_as_augmentation:
+        print("Error: --multi_task cannot be used with --displacement_as_augmentation")
+        exit(1)
 
     if not args.out_dir:
         # 出力ディレクトリが指定されていない場合
@@ -749,6 +987,7 @@ if __name__ == "__main__":
                 f"Displacement Functions: {', '.join(args.displacement_functions)}\n"
             )
         f.write(f"Displacement as augmentation: {args.displacement_as_augmentation}\n")
+        f.write(f"Multi-task mode: {args.multi_task}\n")
         if args.num_classes is not None:
             f.write(f"Number of classes (randomly selected): {args.num_classes}\n")
         if args.categories:
@@ -778,6 +1017,7 @@ if __name__ == "__main__":
     if args.displacement_functions:
         print(f"  Displacement Functions: {', '.join(args.displacement_functions)}")
     print(f"  Displacement as augmentation: {args.displacement_as_augmentation}")
+    print(f"  Multi-task mode: {args.multi_task}")
     if args.num_classes is not None:
         print(f"  Number of classes (randomly selected): {args.num_classes}")
     if args.categories:
@@ -813,6 +1053,7 @@ if __name__ == "__main__":
         dataset_name=args.dataset_name,
         mapper_as_augmentation=args.mapper_as_augmentation,
         displacement_as_augmentation=args.displacement_as_augmentation,
+        multi_task=args.multi_task,
     )
 
     time_end = time.time()

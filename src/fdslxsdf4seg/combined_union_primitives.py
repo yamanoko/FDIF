@@ -100,6 +100,32 @@ class HybridCombinedUnionPrimitive:
             self._display_name = f"({first_name} ∪ {second_name}) + {mapper_name}"
         return self._display_name
 
+    def get_shape_name(self) -> str:
+        """プリミティブのベース形状名を取得（マルチタスク用）
+
+        Returns:
+            "First_union_Second" 形式の複合名
+        """
+        first_name = self.combined_union_primitive.first_class.__name__
+        second_name = self.combined_union_primitive.second_class.__name__
+        return f"{first_name}_union_{second_name}"
+
+    def get_displacement_name(self) -> str:
+        """displacement関数名を取得（マルチタスク用）
+
+        Returns:
+            CombinedUnionPrimitiveはdisplacementなしなので"none"を返す
+        """
+        return "none"
+
+    def get_mapper_name(self) -> str:
+        """マッパー名を取得（マルチタスク用）
+
+        Returns:
+            マッパー名
+        """
+        return self.mapper.get_name()
+
     def __repr__(self) -> str:
         return f"HybridCombinedUnionPrimitive({self.get_display_name()})"
 

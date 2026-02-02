@@ -126,6 +126,30 @@ class HybridDisplacedPrimitive:
             )
         return self._display_name
 
+    def get_shape_name(self) -> str:
+        """プリミティブのベース形状名を取得（マルチタスク用）
+
+        Returns:
+            プリミティブクラス名
+        """
+        return self.displaced_primitive.primitive_class.__name__
+
+    def get_displacement_name(self) -> str:
+        """displacement関数名を取得（マルチタスク用）
+
+        Returns:
+            displacement関数名
+        """
+        return self.displaced_primitive.displacement_function.get_name()
+
+    def get_mapper_name(self) -> str:
+        """マッパー名を取得（マルチタスク用）
+
+        Returns:
+            マッパー名
+        """
+        return self.mapper.get_name()
+
     def __repr__(self) -> str:
         return f"HybridDisplacedPrimitive({self.get_display_name()})"
 

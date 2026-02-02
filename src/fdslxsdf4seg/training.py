@@ -36,7 +36,7 @@ from monai.transforms import (
     ScaleIntensityRanged,
     Spacingd,
 )
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, ModuleDict
 from tqdm import tqdm
 
 from fdslxsdf4seg.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -44,6 +44,143 @@ from fdslxsdf4seg.visualize_training_metrics import (
     plot_metrics,
     print_summary,
 )
+
+
+class MultiHeadSegmentationModel(torch.nn.Module):
+    """マルチタスク学習用のラッパーモデル
+
+    UNETR/SwinUNETRのデコーダ出力から複数の独立したセグメンテーションヘッドへ分岐する。
+    各タスク（shape, displacement, mapper）に対して独立したUnetOutBlockを持つ。
+    """
+
+    def __init__(self, base_model, task_out_channels: dict, feature_size: int):
+        """
+        Args:
+            base_model: UNETR or SwinUNETR model
+            task_out_channels: dict of task name -> number of output channels
+                e.g., {"shape": 5, "displacement": 3, "mapper": 3}
+            feature_size: feature size of the base model (16 for UNETR, 48 for SwinUNETR)
+        """
+        super().__init__()
+        self.base_model = base_model
+        self.task_out_channels = task_out_channels
+        self.feature_size = feature_size
+
+        # 元のoutヘッドを削除し、タスク別ヘッドを作成
+        self.task_heads = ModuleDict(
+            {
+                task: UnetOutBlock(
+                    spatial_dims=3, in_channels=feature_size, out_channels=nc
+                )
+                for task, nc in task_out_channels.items()
+            }
+        )
+
+        # フック用の変数
+        self._decoder_features = None
+        self._hook_handle = None
+
+        # デコーダの最終特徴マップを取得するフックを登録
+        self._register_decoder_hook()
+
+    def _register_decoder_hook(self):
+        """デコーダの最終出力（outヘッドの入力）をキャプチャするフックを登録"""
+
+        def hook_fn(module, input, output):
+            # UnetOutBlockの入力（デコーダの出力）をキャプチャ
+            self._decoder_features = input[0]
+
+        # base_model.outにフックを登録
+        if hasattr(self.base_model, "out"):
+            self._hook_handle = self.base_model.out.register_forward_hook(hook_fn)
+
+    def forward(self, x):
+        # ベースモデルのforward実行（フックでデコーダ特徴をキャプチャ）
+        _ = self.base_model(x)
+
+        # キャプチャしたデコーダ特徴を各タスクヘッドに通す
+        outputs = {}
+        for task, head in self.task_heads.items():
+            outputs[task] = head(self._decoder_features)
+
+        return outputs
+
+    def state_dict(self, *args, **kwargs):
+        """state_dictをオーバーライドして、ベースモデルとタスクヘッドを含める"""
+        state = {}
+        # ベースモデルのstate_dict
+        for k, v in self.base_model.state_dict().items():
+            state[f"base_model.{k}"] = v
+        # タスクヘッドのstate_dict
+        for k, v in self.task_heads.state_dict().items():
+            state[f"task_heads.{k}"] = v
+        return state
+
+    def load_state_dict(self, state_dict, strict=True):
+        """load_state_dictをオーバーライド"""
+        base_state = {}
+        head_state = {}
+        for k, v in state_dict.items():
+            if k.startswith("base_model."):
+                base_state[k[len("base_model.") :]] = v
+            elif k.startswith("task_heads."):
+                head_state[k[len("task_heads.") :]] = v
+        self.base_model.load_state_dict(base_state, strict=strict)
+        self.task_heads.load_state_dict(head_state, strict=strict)
+
+
+class MultiTaskLoss(torch.nn.Module):
+    """マルチタスク学習用の損失関数
+
+    各タスクに対してDiceCELossを計算し、重み付け合計を返す。
+    """
+
+    def __init__(
+        self, task_out_channels: dict, weights: dict = None, use_ce_loss: bool = False
+    ):
+        """
+        Args:
+            task_out_channels: dict of task name -> number of output channels
+            weights: dict of task name -> loss weight (default: all 1.0)
+            use_ce_loss: If True, use CrossEntropyLoss instead of DiceCELoss
+        """
+        super().__init__()
+        self.task_out_channels = task_out_channels
+        self.weights = weights or {task: 1.0 for task in task_out_channels}
+        self.use_ce_loss = use_ce_loss
+
+        if use_ce_loss:
+            self.losses = ModuleDict(
+                {task: CrossEntropyLoss() for task in task_out_channels}
+            )
+        else:
+            self.losses = ModuleDict(
+                {
+                    task: DiceCELoss(to_onehot_y=True, softmax=True)
+                    for task in task_out_channels
+                }
+            )
+
+    def forward(self, outputs: dict, targets: dict):
+        """各タスクの損失を計算して重み付け合計を返す
+
+        Args:
+            outputs: dict of task name -> model output tensor (B, C, D, H, W)
+            targets: dict of task name -> target tensor (B, 1, D, H, W)
+
+        Returns:
+            total_loss: weighted sum of per-task losses
+        """
+        total_loss = 0.0
+        for task, loss_fn in self.losses.items():
+            if self.use_ce_loss:
+                # CrossEntropyLoss expects labels in (B, D, H, W) format
+                target = targets[task].squeeze(1).long()
+            else:
+                target = targets[task]
+            task_loss = loss_fn(outputs[task], target)
+            total_loss = total_loss + self.weights[task] * task_loss
+        return total_loss
 
 
 def set_seed(seed):
@@ -60,12 +197,63 @@ def set_seed(seed):
     print(f"Random seed set to {seed}")
 
 
+def load_multi_task_info(data_json_path: str) -> dict:
+    """Load multi-task information from data.json.
+
+    Args:
+        data_json_path: Path to data.json
+
+    Returns:
+        dict with keys:
+            - multi_task: bool, whether multi-task mode is enabled
+            - tasks: dict of task_name -> {"labels": {label_name: label_id, ...}}
+            - task_out_channels: dict of task_name -> num_classes
+            - task_names: list of task names in order (e.g., ["shape", "displacement", "mapper"])
+    """
+    with open(data_json_path, "r") as f:
+        data_json = json.load(f)
+
+    result = {
+        "multi_task": data_json.get("multi_task", False),
+        "tasks": {},
+        "task_out_channels": {},
+        "task_names": [],
+    }
+
+    if result["multi_task"] and "tasks" in data_json:
+        result["tasks"] = data_json["tasks"]
+        # タスク名の順序を維持（shape, displacement, mapperの順）
+        # data.jsonに含まれるタスクのみを抽出
+        canonical_order = ["shape", "displacement", "mapper"]
+        for task_name in canonical_order:
+            if task_name in data_json["tasks"]:
+                result["task_names"].append(task_name)
+                result["task_out_channels"][task_name] = len(
+                    data_json["tasks"][task_name]["labels"]
+                )
+
+    return result
+
+
 def make_data_loder(
     data_json_path: str,
     real_data: bool = True,
     spatial_size: tuple = (96, 96, 96),
     batch_size: int = 1,
+    multi_task: bool = False,
 ):
+    """Create data loaders for training and validation.
+
+    Args:
+        data_json_path: Path to data.json
+        real_data: If True, use CacheDataset with medical image preprocessing
+        spatial_size: Size of random crops
+        batch_size: Batch size for training
+        multi_task: If True, load multi-task labels (3 channels: shape, displacement, mapper)
+
+    Returns:
+        train_loader, val_loader
+    """
     num_samples = 4
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -183,6 +371,35 @@ def make_data_loder(
     return train_loader, val_loader
 
 
+def split_multi_task_labels(labels: torch.Tensor, task_names: list) -> dict:
+    """Split multi-task label tensor into per-task tensors.
+
+    Args:
+        labels: Tensor of shape (B, N, D, H, W) or (B, N, 1, D, H, W)
+            where N is the number of tasks
+        task_names: List of task names in order (e.g., ["shape", "displacement", "mapper"]
+            or ["shape", "mapper"] for 2-task mode)
+
+    Returns:
+        dict: {task_name: (B, 1, D, H, W), ...} for each task
+    """
+    result = {}
+
+    # ラベルの形状を確認・調整
+    if labels.dim() == 5:
+        # (B, N, D, H, W) 形式
+        for i, task_name in enumerate(task_names):
+            result[task_name] = labels[:, i : i + 1, :, :, :]  # (B, 1, D, H, W)
+    elif labels.dim() == 6:
+        # (B, N, 1, D, H, W) 形式
+        for i, task_name in enumerate(task_names):
+            result[task_name] = labels[:, i, :, :, :, :]  # (B, 1, D, H, W)
+    else:
+        raise ValueError(f"Unexpected label shape: {labels.shape}")
+
+    return result
+
+
 def create_model(
     model_name,
     grid_size,
@@ -191,7 +408,33 @@ def create_model(
     pretrained_path=None,
     pretraining_out_channel=14,
     use_checkpoint=False,
+    multi_task=False,
+    task_out_channels=None,
 ):
+    """Create segmentation model.
+
+    Args:
+        model_name: Name of the model (vnet, unetr, swin_unetr)
+        grid_size: Input grid size
+        out_channel: Number of output channels (for single-task)
+        feature_size: Feature size for UNETR/SwinUNETR
+        pretrained_path: Path to pretrained weights
+        pretraining_out_channel: Output channels of pretrained model
+        use_checkpoint: Enable gradient checkpointing for SwinUNETR
+        multi_task: If True, create multi-task model
+        task_out_channels: Dict of task -> num_classes for multi-task mode
+            e.g., {"shape": 5, "displacement": 3, "mapper": 3}
+    """
+    # マルチタスクモードのバリデーション
+    if multi_task:
+        if model_name == "vnet":
+            raise ValueError(
+                "Multi-task learning is not supported for VNet. "
+                "Please use 'unetr' or 'swin_unetr'."
+            )
+        if task_out_channels is None:
+            raise ValueError("task_out_channels must be provided for multi-task mode.")
+
     if model_name == "vnet":
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
@@ -213,44 +456,58 @@ def create_model(
             )
 
     elif model_name == "unetr":
+        fs = feature_size or 16
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
             model = UNETR(
                 in_channels=1,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
-                feature_size=feature_size or 16,
+                feature_size=fs,
             )
             model.load_state_dict(weights)
-            model.out = UnetOutBlock(
-                spatial_dims=3,
-                in_channels=feature_size or 16,
-                out_channels=out_channel,
-            )
+            if not multi_task:
+                model.out = UnetOutBlock(
+                    spatial_dims=3,
+                    in_channels=fs,
+                    out_channels=out_channel,
+                )
             print(f"Model {model_name} loaded from {pretrained_path}")
         else:
             model = UNETR(
                 in_channels=1,
                 out_channels=out_channel,
                 spatial_dims=3,
-                feature_size=feature_size or 16,
+                feature_size=fs,
+            )
+        # マルチタスクモードの場合、ラッパーで包む
+        if multi_task:
+            model = MultiHeadSegmentationModel(
+                base_model=model,
+                task_out_channels=task_out_channels,
+                feature_size=fs,
+            )
+            print(
+                f"Multi-task model created with tasks: {list(task_out_channels.keys())}"
             )
     elif model_name == "swin_unetr":
+        fs = feature_size or 48
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
             model = SwinUNETR(
                 in_channels=1,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
-                feature_size=feature_size or 48,
+                feature_size=fs,
                 use_checkpoint=use_checkpoint,
             )
             model.load_state_dict(weights)
-            model.out = UnetOutBlock(
-                spatial_dims=3,
-                in_channels=feature_size or 48,
-                out_channels=out_channel,
-            )
+            if not multi_task:
+                model.out = UnetOutBlock(
+                    spatial_dims=3,
+                    in_channels=fs,
+                    out_channels=out_channel,
+                )
             print(f"Model {model_name} loaded from {pretrained_path}")
             if use_checkpoint:
                 print("Gradient checkpointing enabled for SwinUNETR")
@@ -259,11 +516,21 @@ def create_model(
                 in_channels=1,
                 out_channels=out_channel,
                 spatial_dims=3,
-                feature_size=feature_size or 48,
+                feature_size=fs,
                 use_checkpoint=use_checkpoint,
             )
             if use_checkpoint:
                 print("Gradient checkpointing enabled for SwinUNETR")
+        # マルチタスクモードの場合、ラッパーで包む
+        if multi_task:
+            model = MultiHeadSegmentationModel(
+                base_model=model,
+                task_out_channels=task_out_channels,
+                feature_size=fs,
+            )
+            print(
+                f"Multi-task model created with tasks: {list(task_out_channels.keys())}"
+            )
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
@@ -375,6 +642,115 @@ def validation(
     return mean_dice_val, class_dice_score
 
 
+def validation_multi_task(
+    epoch_iterator_val,
+    global_step,
+    training_log_path,
+    task_out_channels,
+    task_names,
+    use_ce_loss=False,
+):
+    """マルチタスク学習用のバリデーション関数
+
+    Args:
+        epoch_iterator_val: Validation data iterator
+        global_step: Current training step
+        training_log_path: Path to training log file
+        task_out_channels: Dict of task -> num_classes
+        task_names: List of task names in order
+        use_ce_loss: If True, use CE loss (not used in validation, for compatibility)
+
+    Returns:
+        mean_dice_val: Mean Dice score across all tasks
+        task_dice_scores: Dict of task -> mean Dice score
+    """
+    model.eval()
+
+    # タスクごとのメトリクス
+    task_run_acc = {task: AverageMeter() for task in task_out_channels}
+    task_raw_dice_scores = {task: [] for task in task_out_channels}
+
+    # タスクごとのpost_label, post_pred, dice_metric
+    task_post_label = {
+        task: AsDiscrete(to_onehot=nc) for task, nc in task_out_channels.items()
+    }
+    task_post_pred = {
+        task: AsDiscrete(argmax=True, to_onehot=nc)
+        for task, nc in task_out_channels.items()
+    }
+    task_dice_metric = {
+        task: DiceMetric(include_background=False, reduction="mean", get_not_nans=True)
+        for task in task_out_channels
+    }
+
+    with torch.no_grad():
+        for batch in epoch_iterator_val:
+            val_inputs = batch["image"].cuda()
+            val_labels = batch["label"].cuda()
+
+            with torch.autocast("cuda"):
+                # マルチタスクモデルはdictを返す
+                val_outputs = sliding_window_inference(val_inputs, grid_size, 4, model)
+
+            # マルチタスクラベルを分離
+            val_labels_dict = split_multi_task_labels(val_labels, task_names)
+
+            # タスクごとにDiceスコアを計算
+            for task in task_out_channels:
+                task_labels = val_labels_dict[task]
+                task_outputs = val_outputs[task]
+
+                task_labels_list = decollate_batch(task_labels)
+                task_labels_convert = [
+                    task_post_label[task](lbl) for lbl in task_labels_list
+                ]
+
+                task_outputs_list = decollate_batch(task_outputs)
+                task_output_convert = [
+                    task_post_pred[task](pred) for pred in task_outputs_list
+                ]
+
+                task_dice_metric[task].reset()
+                raw_dice_score = task_dice_metric[task](
+                    y_pred=task_output_convert, y=task_labels_convert
+                )
+                task_raw_dice_scores[task].append(raw_dice_score[0].cpu())
+                dice_scores, not_nans = task_dice_metric[task].aggregate()
+                task_run_acc[task].update(
+                    dice_scores.cpu().numpy(), not_nans.cpu().numpy()
+                )
+
+            # メモリ解放
+            del val_inputs, val_labels, val_outputs, val_labels_dict
+            torch.cuda.empty_cache()
+
+            epoch_iterator_val.set_description(
+                "Validate (%d / %d Steps)" % (global_step, 10.0)
+            )
+
+    # タスクごとの平均Diceスコアを計算
+    task_mean_dice = {}
+    for task in task_out_channels:
+        task_mean_dice[task] = np.mean(task_run_acc[task].avg).item()
+
+    # 全タスクの平均Diceスコア
+    mean_dice_val = np.mean(list(task_mean_dice.values()))
+
+    # ログ出力
+    with open(training_log_path, "a") as f:
+        f.write(
+            f"Step {global_step}: Validation Mean Dice Score: {mean_dice_val:.6f}\n"
+        )
+        for task, dice in task_mean_dice.items():
+            f.write(f"Step {global_step}: Task '{task}' Dice Score: {dice:.6f}\n")
+
+    # メモリ解放
+    del task_raw_dice_scores
+    torch.cuda.empty_cache()
+
+    return mean_dice_val, task_mean_dice
+
+
 def save_checkpoint(
     checkpoint_path,
     model,
@@ -450,7 +826,25 @@ def train(
     out_channel=14,
     is_real_data=True,
     use_ce_loss=False,
+    multi_task=False,
+    task_out_channels=None,
+    task_names=None,
 ):
+    """Training function for both single-task and multi-task learning.
+
+    Args:
+        global_step: Current training step
+        train_loader: Training data loader
+        dice_val_best: Best Dice score so far
+        global_step_best: Step at which best Dice was achieved
+        training_log_path: Path to training log file
+        out_channel: Number of output channels (for single-task)
+        is_real_data: Whether using real data (unused, kept for compatibility)
+        use_ce_loss: If True, use CrossEntropyLoss instead of DiceCELoss
+        multi_task: If True, enable multi-task learning mode
+        task_out_channels: Dict of task -> num_classes (required for multi-task)
+        task_names: List of task names in order (required for multi-task)
+    """
     model.train()
     epoch_loss = 0
     step = 0
@@ -461,12 +855,19 @@ def train(
         step += 1
         x, y = (batch["image"].cuda(), batch["label"].cuda())
 
+        # マルチタスク時はラベルを分離
+        if multi_task:
+            y_dict = split_multi_task_labels(y, task_names)
+
         # Clear gradients explicitly before forward pass
         optimizer.zero_grad()
 
         with torch.autocast("cuda"):
             logit_map = model(x)
-            if use_ce_loss:
+            if multi_task:
+                # マルチタスク損失を計算
+                loss = loss_function(logit_map, y_dict)
+            elif use_ce_loss:
                 # CrossEntropyLoss expects labels in (B, D, H, W) format (no channel dimension)
                 # and logits in (B, C, D, H, W) format
                 y_squeezed = y.squeeze(
@@ -488,7 +889,10 @@ def train(
         scheduler.step()
 
         # Explicitly delete variables to free GPU memory immediately
-        del x, y, logit_map, loss
+        if multi_task:
+            del x, y, y_dict, logit_map, loss
+        else:
+            del x, y, logit_map, loss
         # Clear gradients after step to ensure no gradient accumulation
         optimizer.zero_grad()
 
@@ -509,13 +913,23 @@ def train(
             epoch_iterator_val = tqdm(
                 val_loader, desc="Validate (X / X Steps) (dice=X.X)", dynamic_ncols=True
             )
-            dice_val, dice_scores = validation(
-                epoch_iterator_val,
-                global_step,
-                training_log_path,
-                out_channel,
-                use_ce_loss,
-            )
+            if multi_task:
+                dice_val, dice_scores = validation_multi_task(
+                    epoch_iterator_val,
+                    global_step,
+                    training_log_path,
+                    task_out_channels,
+                    task_names,
+                    use_ce_loss,
+                )
+            else:
+                dice_val, dice_scores = validation(
+                    epoch_iterator_val,
+                    global_step,
+                    training_log_path,
+                    out_channel,
+                    use_ce_loss,
+                )
             epoch_loss /= step
             epoch_loss_values.append(epoch_loss)
             metric_values.append(dice_val)
@@ -578,15 +992,20 @@ def train(
                         dice_val_best, dice_val
                     )
                 )
-                # Log detailed per-class dice scores for the best model
+                # Log detailed per-class/per-task dice scores for the best model
                 with open(training_log_path, "a") as f:
                     f.write(f"*** BEST MODEL SAVED at Step {global_step} ***\n")
                     f.write(f"Best Average Dice Score: {dice_val_best:.6f}\n")
-                    f.write("Per-class Dice Scores for Best Model:\n")
-                    for class_idx in range(out_channel - 1):
-                        f.write(
-                            f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
-                        )
+                    if multi_task:
+                        f.write("Per-task Dice Scores for Best Model:\n")
+                        for task, dice in dice_scores.items():
+                            f.write(f"  Task '{task}': {dice:.6f}\n")
+                    else:
+                        f.write("Per-class Dice Scores for Best Model:\n")
+                        for class_idx in range(out_channel - 1):
+                            f.write(
+                                f"  Class {class_idx}: {dice_scores[class_idx].item():.6f}\n"
+                            )
                     f.write("=" * 50 + "\n")
 
             else:
@@ -654,6 +1073,151 @@ def perform_inference_and_visualize(
         create_slice_visualization(
             image, label, prediction, out_dir, mean_dice, out_channel
         )
+
+
+def perform_inference_and_visualize_multi_task(
+    model, val_loader, out_dir, device, grid_size, task_out_channels, task_names
+):
+    """マルチタスクモデルの推論と可視化を実行
+
+    Args:
+        model: Multi-task segmentation model
+        val_loader: Validation data loader
+        out_dir: Output directory for visualizations
+        device: Device to use
+        grid_size: Grid size for sliding window inference
+        task_out_channels: Dict of task -> num_classes
+        task_names: List of task names in order
+    """
+    model.eval()
+
+    # Get one validation sample
+    val_batch = next(iter(val_loader))
+    val_inputs = val_batch["image"].to(device)
+    val_labels = val_batch["label"].to(device)
+
+    with torch.no_grad():
+        # Perform inference
+        with torch.autocast("cuda"):
+            val_outputs = sliding_window_inference(val_inputs, grid_size, 4, model)
+
+        # マルチタスクラベルを分離
+        val_labels_dict = split_multi_task_labels(val_labels, task_names)
+
+        # Move image to CPU
+        image = val_inputs[0, 0].cpu().numpy()
+
+        # タスクごとに可視化
+        task_predictions = {}
+        task_dice_scores = {}
+        for task in task_out_channels:
+            task_output = val_outputs[task]
+            task_label = val_labels_dict[task]
+
+            # Convert to predictions
+            task_output_softmax = torch.softmax(task_output, 1)
+            task_pred = torch.argmax(task_output_softmax, dim=1)
+
+            # Calculate Dice score for this task
+            from monai.metrics import compute_dice
+
+            dice_scores = compute_dice(
+                task_output_softmax, task_label, include_background=False
+            )
+            mean_dice = torch.mean(dice_scores).item()
+
+            task_predictions[task] = task_pred[0].cpu().numpy()
+            task_dice_scores[task] = mean_dice
+
+            # Get label for this task
+            label = task_label[0, 0].cpu().numpy()
+
+            # Create visualization for this task
+            create_slice_visualization_multi_task(
+                image,
+                label,
+                task_predictions[task],
+                out_dir,
+                task,
+                mean_dice,
+                task_out_channels[task],
+            )
+
+        # Print summary
+        print("Multi-task Inference Results:")
+        for task, dice in task_dice_scores.items():
+            print(f"  Task '{task}': Dice Score = {dice:.4f}")
+
+        # Explicitly delete GPU tensors to free memory
+        del val_inputs, val_labels, val_outputs, val_labels_dict
+        torch.cuda.empty_cache()
+
+
+def create_slice_visualization_multi_task(
+    image, label, prediction, out_dir, task_name, dice_score=None, out_channel=14
+):
+    """マルチタスク用のスライス可視化を作成
+
+    Args:
+        image: Input image volume
+        label: Ground truth label volume
+        prediction: Predicted label volume
+        out_dir: Output directory
+        task_name: Name of the task (shape, displacement, mapper)
+        dice_score: Dice score for this task
+        out_channel: Number of output channels for this task
+    """
+    # Get middle slices for visualization
+    depth = image.shape[2]
+    middle_slice = depth // 2
+
+    # Get slices
+    image_slice = image[:, :, middle_slice]
+    label_slice = label[:, :, middle_slice]
+    pred_slice = prediction[:, :, middle_slice]
+
+    # Use fixed value range for consistent color mapping
+    vmin = 0
+    vmax = out_channel - 1
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    title = f"Task '{task_name}' - Middle Slice"
+    if dice_score is not None:
+        title += f" (Dice: {dice_score:.4f})"
+    fig.suptitle(title, fontsize=16)
+
+    # Original image
+    axes[0].imshow(image_slice, cmap="gray")
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
+
+    # Ground truth label with consistent color range
+    im1 = axes[1].imshow(label_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+    axes[1].set_title("Ground Truth")
+    axes[1].axis("off")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    # Prediction with consistent color range
+    im2 = axes[2].imshow(pred_slice, cmap="jet", alpha=0.8, vmin=vmin, vmax=vmax)
+    axes[2].set_title("Prediction")
+    axes[2].axis("off")
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    # Overlay: Image + Prediction with consistent color range
+    axes[3].imshow(image_slice, cmap="gray")
+    axes[3].imshow(pred_slice, cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
+    axes[3].set_title("Image + Prediction")
+    axes[3].axis("off")
+
+    plt.tight_layout()
+
+    # Save the visualization
+    viz_path = os.path.join(out_dir, f"inference_visualization_{task_name}.png")
+    plt.savefig(viz_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Task '{task_name}' visualization saved to: {viz_path}")
 
 
 def create_slice_visualization(
@@ -872,7 +1436,20 @@ if __name__ == "__main__":
         action="store_true",
         help="Use CrossEntropyLoss instead of DiceCELoss to reduce memory usage",
     )
+    p.add_argument(
+        "--multi_task",
+        action="store_true",
+        help="Enable multi-task learning mode. Requires dataset with multi-task labels "
+        "(data.json with 'multi_task': true). Only supported for UNETR and SwinUNETR.",
+    )
     args = p.parse_args()
+
+    # マルチタスクモードのバリデーション
+    if args.multi_task and args.model_name == "vnet":
+        print(
+            "Error: --multi_task is not supported for VNet. Please use 'unetr' or 'swin_unetr'."
+        )
+        exit(1)
 
     # Generate random seed if not specified
     if args.seed is None:
@@ -903,12 +1480,36 @@ if __name__ == "__main__":
     print(f"Output directory: {out_dir}")
     print(f"Random seed set to: {args.seed}")
 
+    # マルチタスク情報の読み込み
+    multi_task_info = None
+    task_out_channels = None
+    task_names = None
+    if args.multi_task:
+        multi_task_info = load_multi_task_info(args.data_json_path)
+        if not multi_task_info["multi_task"]:
+            print("Error: --multi_task specified but dataset is not multi-task format.")
+            print(
+                "Please generate dataset with --multi_task flag in generate_sdf_dataset.py"
+            )
+            exit(1)
+        task_out_channels = multi_task_info["task_out_channels"]
+        task_names = multi_task_info["task_names"]
+        print(f"Multi-task mode enabled with {len(task_names)} tasks: {task_names}")
+        for task, nc in task_out_channels.items():
+            print(f"  Task '{task}': {nc} classes")
+        with open(training_log_path, "a") as f:
+            f.write(f"Multi-task mode: {args.multi_task}\n")
+            f.write(f"Task names: {task_names}\n")
+            f.write(f"Task output channels: {task_out_channels}\n")
+            f.write("=" * 50 + "\n")
+
     grid_size = tuple(args.grid_size)
     train_loader, val_loader = make_data_loder(
         data_json_path=args.data_json_path,
         real_data=args.is_real_data,
         spatial_size=grid_size,
         batch_size=args.batch_size,
+        multi_task=args.multi_task,
     )
     print(f"Training data loader created with {len(train_loader.dataset)} samples.")
     print(f"Validation data loader created with {len(val_loader.dataset)} samples.")
@@ -921,8 +1522,15 @@ if __name__ == "__main__":
         pretrained_path=args.pretrained_model,
         pretraining_out_channel=args.pretraining_out_channel,
         use_checkpoint=args.use_checkpoint,
+        multi_task=args.multi_task,
+        task_out_channels=task_out_channels,
     )
-    print(f"Model {args.model_name} created with output channels: {args.out_channel}.")
+    if args.multi_task:
+        print(f"Multi-task model {args.model_name} created.")
+    else:
+        print(
+            f"Model {args.model_name} created with output channels: {args.out_channel}."
+        )
     print(f"Using learning rate: {args.learning_rate}")
     if args.pretrained_model:
         print(f"Loading pretrained model from {args.pretrained_model}")
@@ -941,7 +1549,13 @@ if __name__ == "__main__":
         f.write("=" * 50 + "\n")
 
     # Set up loss function based on user choice
-    if args.use_ce_loss:
+    if args.multi_task:
+        loss_function = MultiTaskLoss(
+            task_out_channels=task_out_channels,
+            use_ce_loss=args.use_ce_loss,
+        )
+        print(f"Using MultiTaskLoss (CE: {args.use_ce_loss})")
+    elif args.use_ce_loss:
         loss_function = CrossEntropyLoss()
         print("Using CrossEntropyLoss (memory efficient)")
     else:
@@ -1003,6 +1617,9 @@ if __name__ == "__main__":
             args.out_channel,
             args.is_real_data,
             args.use_ce_loss,
+            multi_task=args.multi_task,
+            task_out_channels=task_out_channels,
+            task_names=task_names,
         )
     time_end = time.time()
     print(
@@ -1069,14 +1686,25 @@ if __name__ == "__main__":
     else:
         print("Best model not found, using current model for inference")
 
-    perform_inference_and_visualize(
-        model, val_loader, out_dir, device, grid_size, args.out_channel
-    )
-
-    with open(training_log_path, "a") as f:
-        f.write("Inference visualizations saved to:\n")
-        f.write("  - inference_visualization.png\n")
-        f.write("  - inference_multiplane_visualization.png\n")
-        f.write(
-            "All visualizations (training curves and inference) are now complete.\n"
+    if args.multi_task:
+        perform_inference_and_visualize_multi_task(
+            model, val_loader, out_dir, device, grid_size, task_out_channels, task_names
         )
+        with open(training_log_path, "a") as f:
+            f.write("Inference visualizations saved to:\n")
+            for task in task_out_channels:
+                f.write(f"  - inference_visualization_{task}.png\n")
+            f.write(
+                "All visualizations (training curves and inference) are now complete.\n"
+            )
+    else:
+        perform_inference_and_visualize(
+            model, val_loader, out_dir, device, grid_size, args.out_channel
+        )
+        with open(training_log_path, "a") as f:
+            f.write("Inference visualizations saved to:\n")
+            f.write("  - inference_visualization.png\n")
+            f.write("  - inference_multiplane_visualization.png\n")
+            f.write(
+                "All visualizations (training curves and inference) are now complete.\n"
+            )

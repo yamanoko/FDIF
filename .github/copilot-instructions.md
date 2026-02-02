@@ -87,6 +87,7 @@ SDFObject._sdf() → raw distance field
 - Real data uses `CacheDataset` with aggressive transforms; synthetic uses `Dataset`
 - Sliding window inference: `roi_size = spatial_size` from `--grid_size`
 - Pretrained model loading: `--pretrained_model` + `--pretraining_out_channel` (adjusts final layer if class count differs)
+- **Multi-task mode**: Use `--multi_task` flag with UNETR/SwinUNETR to train 3 tasks (shape, displacement, mapper) simultaneously
 
 ## Command Patterns
 
@@ -130,6 +131,21 @@ uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
 → Creates Dataset999_SDFSynthetic with nnUNet-compatible structure
 → Validation data saved as separate Dataset1000_SDFSynthetic_Val
 
+**Multi-Task Dataset (MONAI Format)**:
+```bash
+uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./outputs/multi_task_dataset \
+    --D 96 --H 96 --W 96 \
+    --num_samples 500 --num_val_samples 100 \
+    --primitives sphere cylinder torus \
+    --sdf_mappers inverse_cube linear \
+    --displacement_functions perlin turbulence \
+    --multi_task \
+    --num_visualize 10
+```
+→ Creates multi-task labels with 3 channels: shape, displacement, mapper
+→ data.json includes `"multi_task": true` and `"tasks"` information
+
 ### Train Model
 ```bash
 uv run python src/fdslxsdf4seg/training.py \
@@ -139,6 +155,19 @@ uv run python src/fdslxsdf4seg/training.py \
     --grid_size 96 96 96 \
     --max_iterations 30000
 ```
+
+**Multi-Task Training** (UNETR/SwinUNETR only):
+```bash
+uv run python src/fdslxsdf4seg/training.py \
+    --data_json_path ./outputs/multi_task_dataset/data/data.json \
+    --model_name swin_unetr \
+    --multi_task \
+    --grid_size 96 96 96 \
+    --max_iterations 30000
+```
+→ `--out_channel` is automatically determined from data.json's `tasks` information
+→ Creates 3 output heads (shape, displacement, mapper) sharing encoder/decoder
+→ Outputs per-task Dice scores in training log
 
 ### Visualize Primitives
 ```bash
