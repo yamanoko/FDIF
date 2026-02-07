@@ -46,11 +46,19 @@ The codebase's key innovation is a **four-layer primitive composition system**:
 
 ### Key Data Flow
 ```
+# Segmentation (MONAI)
 SDFObject._sdf() → raw distance field
 → DisplacementFunction.apply() → deformed distance field (optional)
 → SDFMapper.apply() → intensity volume
 → PyTorch Dataset → .nii.gz files
 → MONAI training pipeline
+
+# Classification (SSL3D_classification)
+SDFObject._sdf() → raw distance field (grid_scale=0.35 で拡大)
+→ DisplacementFunction.apply() → deformed distance field (optional)
+→ SDFMapper.apply() → intensity volume
+→ Z-Score正規化 → Blosc2 (.b2nd) ファイル
+→ SSL3D_classification training pipeline
 ```
 
 ## Critical Patterns & Conventions
@@ -81,6 +89,17 @@ SDFObject._sdf() → raw distance field
 - Support for displacement functions via `--displacement_functions` argument
 - Generated files: `imagesTr/`, `labelsTr/`, `data.json` (MONAI-compatible Decathlon format)
 - Visualization outputs: Plotly 3D HTML + slice PNGs in `visualizations/`
+
+### Classification Dataset Generation (`generate_sdf_dataset_classification.py`)
+- `SDFClassificationDataset` creates volumes with **1 object per sample** for SSL3D_classification
+- **Class IDs are 0-indexed** (no background class), determined by primitive × mapper × displacement combinations
+- `--grid_scale 0.45` (default) shrinks mesh grid coordinates to make primitives fill more of the volume
+- `--samples_per_class N` controls instances per class (total samples = N × num_classes)
+- `center=[0,0,0]` disables translation; rotation/shear still applied via `transform=True`
+- Z-Score normalization applied before saving: `(x - mean) / max(std, 1e-8)`
+- Output format: Blosc2 `.b2nd` (shape `(1,D,H,W)`, ZSTD clevel=8) + `labelsTr.json` + `splits_final.json`
+- Generates SSL3D_classification compatible YAML config file
+- See `SDF_CLASSIFICATION_DATASET.md` for full data specification and SSL3D DataLoader implementation guide
 
 ### Training Pipeline (`training.py`)
 - **Critical**: Match `--out_channel` to dataset's class count (read from generation logs)
@@ -146,6 +165,23 @@ uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
 → Creates multi-task labels with 3 channels: shape, displacement, mapper
 → data.json includes `"multi_task": true` and `"tasks"` information
 
+### Generate Classification Dataset (SSL3D_classification)
+```bash
+uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
+    --out_dir ./outputs/cls_my_dataset \
+    --D 96 --H 96 --W 96 \
+    --samples_per_class 50 \
+    --primitives sphere cylinder torus cone \
+    --sdf_mappers inverse_cube linear \
+    --grid_scale 0.45 \
+    --n_splits 5 \
+    --dataset_name my_sdf_cls \
+    --num_visualize 5
+```
+→ Creates 4 primitives × 2 mappers = 8 classes (0-indexed) × 50 = 400 total samples
+→ Output: `nnUNetResEncUNetLPlans_3d_fullres/*.b2nd` + `labelsTr.json` + `splits_final.json` + `my_sdf_cls.yaml`
+→ Data is Z-Score normalized, Blosc2 compressed, ready for SSL3D_classification
+
 ### Train Model
 ```bash
 uv run python src/fdslxsdf4seg/training.py \
@@ -198,6 +234,19 @@ uv run python visualize_primitives.py --displaced --3d \
 → Each visualization shows a single object with displacement applied
 → Primitive names are case-insensitive (converted to lowercase internally)
 
+### Generate Paper Figures
+```bash
+uv run python generate_paper_figures.py
+```
+→ Creates publication-quality figures in `visualize_output/paper_figures/<timestamp>/`
+→ Generates 5 types of figures:
+  1. `fig1_sdf_slice.png` - SDFスライス（距離グラデーション：内側青、外側赤、0は黒）
+  2. `fig2_3d_mesh.png/html` - 同じ形状の3D可視化
+  3. `fig3_mapper_*.png` - マッパー適用後のスライス（inverse_cube, linear, floor）
+  4. `fig4_displaced_*.png/html` - Displacement適用後の3D形状（turbulence, ridge, perlin）
+  5. `fig5_dataset_*.png/html` - データセット出力例（データ=統一色、ラベル=色分け）
+→ All shapes use fixed parameters for reproducibility
+
 ### Fine-tune on Real Data
 ```bash
 uv run python src/fdslxsdf4seg/training.py \
@@ -217,6 +266,8 @@ uv run python src/fdslxsdf4seg/training.py \
 - **MONAI**: 3D medical imaging transforms/models
 - **Plotly + Kaleido**: Interactive 3D visualizations
 - **nibabel**: NIfTI format I/O
+- **blosc2**: Blosc2 compressed array I/O (for SSL3D_classification compatibility)
+- **scikit-learn**: KFold cross-validation splits
 
 ### Code Quality
 - Ruff formatter: 88 char lines, double quotes
@@ -235,7 +286,8 @@ src/fdslxsdf4seg/
 ├── displaced_primitive.py    # Primitive × Displacement + Hybrid combinations
 ├── primitive_registry.py     # ALL_PRIMITIVES catalog + selection logic
 ├── combined_union_primitives.py  # Union of two primitives (experimental)
-├── generate_sdf_dataset.py   # Main dataset generation script
+├── generate_sdf_dataset.py   # Main dataset generation script (segmentation)
+├── generate_sdf_dataset_classification.py  # Classification dataset for SSL3D_classification
 ├── training.py               # MONAI-based training loop
 ├── lr_scheduler.py           # LinearWarmupCosineAnnealingLR
 ├── visualize_training_metrics.py  # Plot Dice scores from experiments
@@ -280,6 +332,6 @@ Edit `select_primitives()` call in `SDFSegmentationDataset.__init__` to use cust
 
 ## Resources
 
-- **Documentation**: `generate_sdf_dataset.md`, `training.md`, `VISUALIZATION_README.md`, `VARIATIONS_README.md`
+- **Documentation**: `generate_sdf_dataset.md`, `training.md`, `VISUALIZATION_README.md`, `VARIATIONS_README.md`, `SDF_CLASSIFICATION_DATASET.md`
 - **Real data setup**: `BTCV/make_data_json.py` creates Decathlon-format JSON from medical scans
 - **Experiment tracking**: Check `outputs/YYYYMMDD_HHMMSS/` timestamped directories
