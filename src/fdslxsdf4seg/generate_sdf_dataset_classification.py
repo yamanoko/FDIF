@@ -319,6 +319,7 @@ def generate_yaml_config(
     patch_size: List[int],
     n_splits: int,
     output_path: str,
+    data_root_dir: str,
 ):
     """SSL3D_classification用のHydra YAML設定ファイルを生成
 
@@ -328,6 +329,7 @@ def generate_yaml_config(
         patch_size: パッチサイズ [D, H, W]
         n_splits: クロスバリデーションのフォールド数
         output_path: YAML保存先パス
+        data_root_dir: データのルートディレクトリ（絶対パス）
     """
     yaml_content = f"""# @package _global_
 # SSL3D_classification用SDF分類データセット設定
@@ -336,7 +338,7 @@ data:
   module:
     _target_: datasets.sdf_classification.SDFClassificationDataModule
     name: {dataset_name}
-    data_root_dir: ${{data_dir}}
+    data_root_dir: {data_root_dir}
     batch_size: 1
     train_transforms:
       _target_: augmentation.policies.batchgenerators.get_training_transforms
@@ -484,6 +486,7 @@ def generate_and_save(
         patch_size=grid_size,
         n_splits=n_splits,
         output_path=yaml_path,
+        data_root_dir=os.path.abspath(out_dir),
     )
     print(f"Saved YAML config to {yaml_path}")
 
