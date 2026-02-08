@@ -71,6 +71,7 @@ class SDFClassificationDataset(Dataset):
         mapper_as_augmentation: bool = False,
         displacement_as_augmentation: bool = False,
         grid_scale: float = 0.40,
+        multilabel: bool = False,
     ):
         self.D, self.H, self.W = grid_size
         self.samples_per_class = samples_per_class
@@ -206,6 +207,11 @@ class SDFClassificationDataset(Dataset):
 
         self.transform = transform  # 回転・せん断を適用するかどうか
         self.num_total_classes = len(self.primitive_classes)
+        self.multilabel = multilabel
+
+        # Multilabelモードの場合、タスク別クラスマッピングを構築
+        if multilabel:
+            self._build_multilabel_mappings()
 
         # クラスごとに均等にサンプルを割り当てるリストを構築
         self.sample_assignments = []
@@ -213,15 +219,67 @@ class SDFClassificationDataset(Dataset):
             for _ in range(self.samples_per_class):
                 self.sample_assignments.append(cid)
 
+    def _build_multilabel_mappings(self):
+        """Multilabel学習用のラベル別クラスマッピングを構築
+
+        各プリミティブをshape, displacement, mapperの3つの属性に分解し、
+        それぞれ独立したクラスIDを割り当てる。
+
+        shape_classes: {"Sphere": 0, "Cylinder": 1, ...}
+        displacement_classes: {"none": 0, "perlin": 1, ...}
+        mapper_classes: {"inverse_cube": 0, "linear": 1, ...}
+        """
+        shape_names = set()
+        displacement_names = set()
+        mapper_names = set()
+
+        for hybrid in self.primitive_classes.values():
+            shape_names.add(hybrid.get_shape_name())
+            displacement_names.add(hybrid.get_displacement_name())
+            mapper_names.add(hybrid.get_mapper_name())
+
+        # Shape: 0から始まる連番
+        self.shape_classes = {}
+        for i, name in enumerate(sorted(shape_names)):
+            self.shape_classes[name] = i
+
+        # Displacement: 0から始まる連番（"none"も含む）
+        self.displacement_classes = {}
+        for i, name in enumerate(sorted(displacement_names)):
+            self.displacement_classes[name] = i
+
+        # Mapper: 0から始まる連番
+        self.mapper_classes = {}
+        for i, name in enumerate(sorted(mapper_names)):
+            self.mapper_classes[name] = i
+
+        # 逆引き辞書：primitive_classesの各ハイブリッドのラベル別IDを取得
+        self.hybrid_to_labels = {}
+        for class_id, hybrid in self.primitive_classes.items():
+            shape_id = self.shape_classes[hybrid.get_shape_name()]
+            disp_id = self.displacement_classes[hybrid.get_displacement_name()]
+            mapper_id = self.mapper_classes[hybrid.get_mapper_name()]
+            self.hybrid_to_labels[class_id] = {
+                "shape": shape_id,
+                "displacement": disp_id,
+                "mapper": mapper_id,
+            }
+
+        # ラベル数の情報
+        self.num_shape_classes = len(self.shape_classes)
+        self.num_displacement_classes = len(self.displacement_classes)
+        self.num_mapper_classes = len(self.mapper_classes)
+
     def __len__(self):
         return len(self.sample_assignments)
 
     def __getitem__(self, idx):
-        """1つのプリミティブを生成し、(x_vol, class_id) を返す
+        """1つのプリミティブを生成し、(x_vol, labels) を返す
 
         Returns:
             x_vol: (D, H, W) のfloat32 numpy配列（Z-Score正規化済み）
-            class_id: 整数クラスID（0-indexed）
+            labels: multilabel=Falseの場合は整数クラスID（0-indexed）
+                   multilabel=Trueの場合は[shape_id, displacement_id, mapper_id]のリスト
         """
         # 事前割り当てからクラスを取得（クラスごとに均等）
         class_id = self.sample_assignments[idx]
@@ -265,7 +323,12 @@ class SDFClassificationDataset(Dataset):
         x_np = (x_np - mean) / max(std, 1e-8)
         x_np = x_np.astype(np.float32)
 
-        return x_np, class_id
+        # multilabelモードの場合は3つのラベルを返す
+        if self.multilabel:
+            labels = self.hybrid_to_labels[class_id]
+            return x_np, [labels["shape"], labels["displacement"], labels["mapper"]]
+        else:
+            return x_np, class_id
 
 
 # --- Blosc2保存ユーティリティ ---
@@ -320,17 +383,37 @@ def generate_yaml_config(
     n_splits: int,
     output_path: str,
     data_root_dir: str,
+    multilabel: bool = False,
+    num_shape_classes: int = None,
+    num_displacement_classes: int = None,
+    num_mapper_classes: int = None,
 ):
     """SSL3D_classification用のHydra YAML設定ファイルを生成
 
     Args:
         dataset_name: データセット名
-        num_classes: クラス数
+        num_classes: クラス数（multiclass時）
         patch_size: パッチサイズ [D, H, W]
         n_splits: クロスバリデーションのフォールド数
         output_path: YAML保存先パス
         data_root_dir: データのルートディレクトリ（絶対パス）
+        multilabel: multilabelモードかどうか
+        num_shape_classes: shapeクラス数（multilabel時）
+        num_displacement_classes: displacementクラス数（multilabel時）
+        num_mapper_classes: mapperクラス数（multilabel時）
     """
+    if multilabel:
+        subtask_line = "  subtask: 'multilabel'"
+        num_classes_info = f"""
+  # Multilabelモード: 3つのラベル (shape, displacement, mapper)
+  # Shape classes: {num_shape_classes}
+  # Displacement classes: {num_displacement_classes}
+  # Mapper classes: {num_mapper_classes}
+  num_classes: {num_shape_classes + num_displacement_classes + num_mapper_classes}  # 合計ラベル数"""
+    else:
+        subtask_line = "  subtask: 'multiclass'"
+        num_classes_info = f"  num_classes: {num_classes}"
+
     yaml_content = f"""# @package _global_
 # SSL3D_classification用SDF分類データセット設定
 # 生成コマンド: 生成時のgeneration_log.txtを参照
@@ -349,11 +432,12 @@ data:
     test_transforms: null
   cv:
     k: {n_splits}
-  num_classes: {num_classes}
+{num_classes_info}
   patch_size: [{patch_size[0]}, {patch_size[1]}, {patch_size[2]}]
 
 model:
   task: 'Classification'
+{subtask_line}
   cifar_size: False
   input_channels: 1
   input_dim: 3
@@ -400,6 +484,7 @@ def generate_and_save(
     grid_scale: float = 0.40,
     n_splits: int = 5,
     dataset_name: str = "sdf_classification",
+    multilabel: bool = False,
 ):
     if seed is not None:
         random.seed(seed)
@@ -424,6 +509,7 @@ def generate_and_save(
         mapper_as_augmentation=mapper_as_augmentation,
         displacement_as_augmentation=displacement_as_augmentation,
         grid_scale=grid_scale,
+        multilabel=multilabel,
     )
 
     # 選択されたプリミティブの詳細情報を表示
@@ -447,13 +533,16 @@ def generate_and_save(
     all_identifiers = []
 
     for i in range(num_total_samples):
-        x, class_id = ds[i]
+        x, labels = ds[i]
 
         case_id = f"case_{i:05d}"
         all_identifiers.append(case_id)
 
-        # ラベルを記録（整数クラスID）
-        labels_dict[case_id] = int(class_id)
+        # ラベルを記録（multilabelの場合はリスト、通常は整数）
+        if multilabel:
+            labels_dict[case_id] = [int(label) for label in labels]
+        else:
+            labels_dict[case_id] = int(labels)
 
         # チャネル次元を追加: (D, H, W) -> (1, D, H, W)
         x_with_channel = x[np.newaxis, ...]
@@ -463,7 +552,10 @@ def generate_and_save(
         save_blosc2(x_with_channel, b2nd_path)
 
         if (i + 1) % 50 == 0 or i == 0:
-            print(f"  Saved {i + 1}/{num_total_samples} (class={class_id})")
+            if multilabel:
+                print(f"  Saved {i + 1}/{num_total_samples} (labels={labels})")
+            else:
+                print(f"  Saved {i + 1}/{num_total_samples} (class={labels})")
 
     # labelsTr.json を保存
     labels_path = os.path.join(out_dir, "labelsTr.json")
@@ -480,20 +572,42 @@ def generate_and_save(
 
     # YAML設定ファイルを生成
     yaml_path = os.path.join(out_dir, f"{dataset_name}.yaml")
-    generate_yaml_config(
-        dataset_name=dataset_name,
-        num_classes=ds.num_total_classes,
-        patch_size=grid_size,
-        n_splits=n_splits,
-        output_path=yaml_path,
-        data_root_dir=os.path.abspath(out_dir),
-    )
+    if multilabel:
+        generate_yaml_config(
+            dataset_name=dataset_name,
+            num_classes=ds.num_total_classes,  # 不使用だがmultilabel時は合計を渡す
+            patch_size=grid_size,
+            n_splits=n_splits,
+            output_path=yaml_path,
+            data_root_dir=os.path.abspath(out_dir),
+            multilabel=True,
+            num_shape_classes=ds.num_shape_classes,
+            num_displacement_classes=ds.num_displacement_classes,
+            num_mapper_classes=ds.num_mapper_classes,
+        )
+    else:
+        generate_yaml_config(
+            dataset_name=dataset_name,
+            num_classes=ds.num_total_classes,
+            patch_size=grid_size,
+            n_splits=n_splits,
+            output_path=yaml_path,
+            data_root_dir=os.path.abspath(out_dir),
+        )
     print(f"Saved YAML config to {yaml_path}")
 
     # クラス分布の集計
     class_counts = {}
-    for cid in labels_dict.values():
-        class_counts[cid] = class_counts.get(cid, 0) + 1
+    if multilabel:
+        # multilabelモードでは、元のclass_idベースで集計（データ生成ループで記録）
+        # labels_dictの値は[shape_id, disp_id, mapper_id]なので、
+        # sample_assignmentsから元のclass_idを使って集計
+        for class_id in ds.sample_assignments:
+            class_counts[class_id] = class_counts.get(class_id, 0) + 1
+    else:
+        # 通常モードでは、cidが整数なのでそのまま集計
+        for cid in labels_dict.values():
+            class_counts[cid] = class_counts.get(cid, 0) + 1
 
     # ログファイルに情報を追記
     if log_file_path:
@@ -721,7 +835,22 @@ if __name__ == "__main__":
         default="sdf_classification",
         help="Dataset name for YAML config and output naming",
     )
+    p.add_argument(
+        "--multilabel",
+        action="store_true",
+        help="Generate multilabel dataset (3 labels per sample: shape, displacement, mapper). "
+        "Compatible with SSL3D_classification's multilabel mode. "
+        "Cannot be used with --mapper_as_augmentation or --displacement_as_augmentation.",
+    )
     args = p.parse_args()
+
+    # バリデーション: multilabelとaugmentationモードは併用不可
+    if args.multilabel and args.mapper_as_augmentation:
+        print("Error: --multilabel cannot be used with --mapper_as_augmentation")
+        exit(1)
+    if args.multilabel and args.displacement_as_augmentation:
+        print("Error: --multilabel cannot be used with --displacement_as_augmentation")
+        exit(1)
 
     # 出力ディレクトリの決定
     if not args.out_dir:
@@ -751,6 +880,7 @@ if __name__ == "__main__":
                 f"Displacement Functions: {', '.join(args.displacement_functions)}\n"
             )
         f.write(f"Displacement as augmentation: {args.displacement_as_augmentation}\n")
+        f.write(f"Multilabel mode: {args.multilabel}\n")
         f.write(f"Cross-validation folds: {args.n_splits}\n")
         f.write(f"Dataset name: {args.dataset_name}\n")
         if args.num_classes is not None:
@@ -777,6 +907,7 @@ if __name__ == "__main__":
     if args.displacement_functions:
         print(f"  Displacement Functions: {', '.join(args.displacement_functions)}")
     print(f"  Displacement as augmentation: {args.displacement_as_augmentation}")
+    print(f"  Multilabel mode: {args.multilabel}")
     print(f"  Cross-validation folds: {args.n_splits}")
     print(f"  Dataset name: {args.dataset_name}")
     if args.categories:
@@ -803,6 +934,7 @@ if __name__ == "__main__":
         grid_scale=args.grid_scale,
         n_splits=args.n_splits,
         dataset_name=args.dataset_name,
+        multilabel=args.multilabel,
     )
 
     time_end = time.time()
@@ -842,6 +974,7 @@ if __name__ == "__main__":
             mapper_as_augmentation=args.mapper_as_augmentation,
             displacement_as_augmentation=args.displacement_as_augmentation,
             grid_scale=args.grid_scale,
+            multilabel=args.multilabel,
         )
         id_to_name = {
             cid: h.get_display_name() for cid, h in ds_temp.primitive_classes.items()
@@ -849,18 +982,33 @@ if __name__ == "__main__":
 
         for i in range(min(args.num_visualize, len(case_ids))):
             cid_str = case_ids[i]
-            cls_id = labels[cid_str]
-            cls_name = id_to_name.get(cls_id, f"Unknown({cls_id})")
+            cls_info = labels[cid_str]
+
+            # multilabelの場合はリスト、通常は整数
+            if args.multilabel:
+                # リストの場合: [shape_id, displacement_id, mapper_id]
+                cls_id = cls_info[0]  # shape_idを代表として使用
+                cls_name = id_to_name.get(cls_id, f"Unknown({cls_id})")
+                cls_name += f" [multilabel: {cls_info}]"
+            else:
+                cls_id = cls_info
+                cls_name = id_to_name.get(cls_id, f"Unknown({cls_id})")
 
             # Blosc2から読み込み
             b2nd_path = os.path.join(b2nd_dir, f"{cid_str}.b2nd")
             data = blosc2.open(urlpath=b2nd_path, mode="r")
             x = np.array(data[0])  # チャネル次元を除去: (1,D,H,W) -> (D,H,W)
 
-            print(
-                f"  Visualizing {i + 1}/{args.num_visualize}: "
-                f"{cid_str} (class {cls_id}: {cls_name})"
-            )
+            if args.multilabel:
+                print(
+                    f"  Visualizing {i + 1}/{args.num_visualize}: "
+                    f"{cid_str} (labels {cls_info}: {cls_name})"
+                )
+            else:
+                print(
+                    f"  Visualizing {i + 1}/{args.num_visualize}: "
+                    f"{cid_str} (class {cls_id}: {cls_name})"
+                )
             visualize_sample(
                 x,
                 cls_id,
