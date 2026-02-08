@@ -68,7 +68,7 @@ SSL3D_classificationの `AbideData` (nnUNet式) と互換。ただしラベル�
 ]
 ```
 
-- `sklearn.model_selection.KFold(n_splits=N, shuffle=True, random_state=12345)` で生成
+- TrainデータとValデータは別々に生成され、全foldで同一のtrain/val分割を使用
 - デフォルト: 5 folds
 - アクセス: `splits[fold]["train"]` / `splits[fold]["val"]`
 

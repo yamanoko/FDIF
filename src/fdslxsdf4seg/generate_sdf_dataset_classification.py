@@ -12,6 +12,7 @@ primitives × mappers × displacements のオプションによって決定さ�
 
 import argparse
 import json
+import math
 import os
 import random
 import time
@@ -22,7 +23,6 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 from plotly.subplots import make_subplots
-from sklearn.model_selection import KFold
 from torch.utils.data import Dataset
 
 from fdslxsdf4seg.combined_union_primitives import (
@@ -354,24 +354,26 @@ def save_blosc2(data: np.ndarray, filepath: str):
 
 # --- クロスバリデーション分割生成 ---
 def generate_crossval_split(
-    identifiers: List[str], seed: int = 12345, n_splits: int = 5
+    train_identifiers: List[str],
+    val_identifiers: List[str],
+    n_splits: int = 5,
 ) -> list:
-    """SSL3D_classification互換のKFoldクロスバリデーション分割を生成
+    """SSL3D_classification互換のクロスバリデーション分割を生成
+
+    trainとvalは別々に生成されたデータなので、
+    全foldで同一のtrain/val分割を使用する。
 
     Args:
-        identifiers: サンプルIDのリスト
-        seed: 乱数シード
+        train_identifiers: 訓練サンプルIDのリスト
+        val_identifiers: 検証サンプルIDのリスト
         n_splits: フォールド数
 
     Returns:
         [{"train": [...], "val": [...]}, ...] のリスト
     """
     splits = []
-    kfold = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    for train_idx, val_idx in kfold.split(identifiers):
-        train_keys = [identifiers[i] for i in train_idx]
-        val_keys = [identifiers[i] for i in val_idx]
-        splits.append({"train": train_keys, "val": val_keys})
+    for _ in range(n_splits):
+        splits.append({"train": list(train_identifiers), "val": list(val_identifiers)})
     return splits
 
 
@@ -512,10 +514,20 @@ def generate_and_save(
         multilabel=multilabel,
     )
 
+    # Validation用のサンプル数を逆算
+    # k-foldにおいてtrain:val = (k-1):1 なので
+    # val_samples_per_class = ceil(samples_per_class / (n_splits - 1))
+    val_samples_per_class = math.ceil(samples_per_class / (n_splits - 1))
+
     # 選択されたプリミティブの詳細情報を表示
-    num_total_samples = len(ds)
+    num_train_samples = len(ds)
+    num_val_samples = val_samples_per_class * ds.num_total_classes
+    num_total_samples = num_train_samples + num_val_samples
     print(f"Dataset created with {ds.num_total_classes} classes (0-indexed):")
-    print(f"  Samples per class: {samples_per_class}")
+    print(f"  Train samples per class: {samples_per_class}")
+    print(f"  Val samples per class: {val_samples_per_class}")
+    print(f"  Train samples: {num_train_samples}")
+    print(f"  Val samples: {num_val_samples}")
     print(f"  Total samples: {num_total_samples}")
     if mapper_as_augmentation:
         print(
@@ -530,13 +542,16 @@ def generate_and_save(
 
     # ラベル辞書を構築
     labels_dict = {}
-    all_identifiers = []
+    train_identifiers = []
+    val_identifiers = []
 
-    for i in range(num_total_samples):
+    # --- Training データの生成 ---
+    print("\n--- Generating training data ---")
+    for i in range(num_train_samples):
         x, labels = ds[i]
 
         case_id = f"case_{i:05d}"
-        all_identifiers.append(case_id)
+        train_identifiers.append(case_id)
 
         # ラベルを記録（multilabelの場合はリスト、通常は整数）
         if multilabel:
@@ -553,9 +568,52 @@ def generate_and_save(
 
         if (i + 1) % 50 == 0 or i == 0:
             if multilabel:
-                print(f"  Saved {i + 1}/{num_total_samples} (labels={labels})")
+                print(f"  [Train] Saved {i + 1}/{num_train_samples} (labels={labels})")
             else:
-                print(f"  Saved {i + 1}/{num_total_samples} (class={labels})")
+                print(f"  [Train] Saved {i + 1}/{num_train_samples} (class={labels})")
+
+    # --- Validation データの生成 ---
+    print("\n--- Generating validation data ---")
+    ds_val = SDFClassificationDataset(
+        grid_size=grid_size,
+        samples_per_class=val_samples_per_class,
+        primitives=primitives,
+        categories=categories,
+        num_classes=num_classes,
+        transform=transform,
+        num_combined_unions=num_combined_unions,
+        sdf_mappers=sdf_mappers,
+        displacement_functions=displacement_functions,
+        mapper_as_augmentation=mapper_as_augmentation,
+        displacement_as_augmentation=displacement_as_augmentation,
+        grid_scale=grid_scale,
+        multilabel=multilabel,
+    )
+
+    for i in range(len(ds_val)):
+        x, labels = ds_val[i]
+
+        case_id = f"case_{num_train_samples + i:05d}"
+        val_identifiers.append(case_id)
+
+        # ラベルを記録（multilabelの場合はリスト、通常は整数）
+        if multilabel:
+            labels_dict[case_id] = [int(label) for label in labels]
+        else:
+            labels_dict[case_id] = int(labels)
+
+        # チャネル次元を追加: (D, H, W) -> (1, D, H, W)
+        x_with_channel = x[np.newaxis, ...]
+
+        # Blosc2形式で保存
+        b2nd_path = os.path.join(data_dir, f"{case_id}.b2nd")
+        save_blosc2(x_with_channel, b2nd_path)
+
+        if (i + 1) % 50 == 0 or i == 0:
+            if multilabel:
+                print(f"  [Val] Saved {i + 1}/{num_val_samples} (labels={labels})")
+            else:
+                print(f"  [Val] Saved {i + 1}/{num_val_samples} (class={labels})")
 
     # labelsTr.json を保存
     labels_path = os.path.join(out_dir, "labelsTr.json")
@@ -563,8 +621,10 @@ def generate_and_save(
         json.dump(labels_dict, f, indent=2)
     print(f"Saved labelsTr.json ({len(labels_dict)} entries)")
 
-    # splits_final.json を保存（KFoldクロスバリデーション）
-    splits = generate_crossval_split(all_identifiers, seed=12345, n_splits=n_splits)
+    # splits_final.json を保存（全foldで同一のtrain/val分割）
+    splits = generate_crossval_split(
+        train_identifiers, val_identifiers, n_splits=n_splits
+    )
     splits_path = os.path.join(out_dir, "splits_final.json")
     with open(splits_path, "w", encoding="utf-8") as f:
         json.dump(splits, f, indent=2)
@@ -596,13 +656,11 @@ def generate_and_save(
         )
     print(f"Saved YAML config to {yaml_path}")
 
-    # クラス分布の集計
+    # クラス分布の集計（train + val合計）
     class_counts = {}
     if multilabel:
-        # multilabelモードでは、元のclass_idベースで集計（データ生成ループで記録）
-        # labels_dictの値は[shape_id, disp_id, mapper_id]なので、
-        # sample_assignmentsから元のclass_idを使って集計
-        for class_id in ds.sample_assignments:
+        # multilabelモードでは、元のclass_idベースで集計
+        for class_id in ds.sample_assignments + ds_val.sample_assignments:
             class_counts[class_id] = class_counts.get(class_id, 0) + 1
     else:
         # 通常モードでは、cidが整数なのでそのまま集計
@@ -623,7 +681,10 @@ def generate_and_save(
                 )
             f.write(f"Grid scale: {ds.grid_scale}\n")
             f.write(f"Total classes: {ds.num_total_classes}\n")
-            f.write(f"Samples per class: {samples_per_class}\n")
+            f.write(f"Train samples per class: {samples_per_class}\n")
+            f.write(f"Val samples per class: {val_samples_per_class}\n")
+            f.write(f"Train samples: {num_train_samples}\n")
+            f.write(f"Val samples: {num_val_samples}\n")
             f.write(f"Total samples: {num_total_samples}\n")
             f.write("Class ID mapping:\n")
             for cid, hybrid in ds.primitive_classes.items():
@@ -671,7 +732,10 @@ def generate_and_save(
                 f.write(f"  Class {cid} ({hybrid_name}): {class_counts[cid]} samples\n")
 
             # Cross-validation情報
-            f.write(f"\nCross-validation: {n_splits} folds (seed=12345)\n")
+            f.write(
+                f"\nCross-validation: {n_splits} folds "
+                f"(train/val generated separately, all folds identical)\n"
+            )
 
     print("Done.")
 
@@ -753,7 +817,8 @@ if __name__ == "__main__":
         "--samples_per_class",
         type=int,
         default=25,
-        help="Number of samples to generate per class (total = samples_per_class × num_classes, default: 25)",
+        help="Number of training samples per class. Validation samples are auto-calculated "
+        "from n_splits (val = ceil(train / (n_splits - 1))). (default: 25)",
     )
     p.add_argument("--seed", type=int, default=None, help="Random seed")
     p.add_argument(
@@ -867,7 +932,7 @@ if __name__ == "__main__":
         f.write("Output format: Blosc2 (.b2nd) for SSL3D_classification\n")
         f.write(f"Grid size: {args.D}x{args.H}x{args.W}\n")
         f.write(f"Grid scale: {args.grid_scale}\n")
-        f.write(f"Samples per class: {args.samples_per_class}\n")
+        f.write(f"Train samples per class: {args.samples_per_class}\n")
         f.write(f"Transform enabled: {not args.no_transform}\n")
         f.write(f"Number of combined unions: {args.num_combined_unions}\n")
         if args.sdf_mappers:
@@ -897,7 +962,7 @@ if __name__ == "__main__":
     print("  Format: Blosc2 (.b2nd) for SSL3D_classification")
     print(f"  Grid size: {args.D}x{args.H}x{args.W}")
     print(f"  Grid scale: {args.grid_scale}")
-    print(f"  Samples per class: {args.samples_per_class}")
+    print(f"  Train samples per class: {args.samples_per_class}")
     print(f"  Transform enabled: {not args.no_transform}")
     if args.sdf_mappers:
         print(f"  SDF Mappers: {', '.join(args.sdf_mappers)}")

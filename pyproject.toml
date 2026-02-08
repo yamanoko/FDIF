@@ -19,7 +19,6 @@ dependencies = [
     "plotly>=6.3.0",
     "kaleido>=1.0.0",
     "blosc2>=4.0.0",
-    "scikit-learn>=1.7.2",
 ]
 
 [build-system]

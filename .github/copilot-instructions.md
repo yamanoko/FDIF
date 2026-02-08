@@ -94,7 +94,11 @@ SDFObject._sdf() → raw distance field (grid_scale=0.35 で拡大)
 - `SDFClassificationDataset` creates volumes with **1 object per sample** for SSL3D_classification
 - **Class IDs are 0-indexed** (no background class), determined by primitive × mapper × displacement combinations
 - `--grid_scale 0.45` (default) shrinks mesh grid coordinates to make primitives fill more of the volume
-- `--samples_per_class N` controls instances per class (total samples = N × num_classes)
+- `--samples_per_class N` controls **training** instances per class
+- Validation samples are auto-calculated: `val_per_class = ceil(N / (n_splits - 1))`
+- Total samples = `(N + val_per_class) × num_classes`
+- Train/val data are generated separately (no sklearn dependency)
+- `splits_final.json` has all folds with identical train/val split
 - `center=[0,0,0]` disables translation; rotation/shear still applied via `transform=True`
 - Z-Score normalization applied before saving: `(x - mean) / max(std, 1e-8)`
 - Output format: Blosc2 `.b2nd` (shape `(1,D,H,W)`, ZSTD clevel=8) + `labelsTr.json` + `splits_final.json`
@@ -178,7 +182,8 @@ uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
     --dataset_name my_sdf_cls \
     --num_visualize 5
 ```
-→ Creates 4 primitives × 2 mappers = 8 classes (0-indexed) × 50 = 400 total samples
+→ Creates 4 primitives × 2 mappers = 8 classes (0-indexed)
+→ Train: 50 samples/class = 400, Val: ceil(50/4)=13 samples/class = 104, Total: 504
 → Output: `nnUNetResEncUNetLPlans_3d_fullres/*.b2nd` + `labelsTr.json` + `splits_final.json` + `my_sdf_cls.yaml`
 → Data is Z-Score normalized, Blosc2 compressed, ready for SSL3D_classification
 
@@ -267,7 +272,6 @@ uv run python src/fdslxsdf4seg/training.py \
 - **Plotly + Kaleido**: Interactive 3D visualizations
 - **nibabel**: NIfTI format I/O
 - **blosc2**: Blosc2 compressed array I/O (for SSL3D_classification compatibility)
-- **scikit-learn**: KFold cross-validation splits
 
 ### Code Quality
 - Ruff formatter: 88 char lines, double quotes
