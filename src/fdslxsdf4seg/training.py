@@ -829,6 +829,7 @@ def train(
     multi_task=False,
     task_out_channels=None,
     task_names=None,
+    gradient_accumulation_steps=1,
 ):
     """Training function for both single-task and multi-task learning.
 
@@ -844,6 +845,7 @@ def train(
         multi_task: If True, enable multi-task learning mode
         task_out_channels: Dict of task -> num_classes (required for multi-task)
         task_names: List of task names in order (required for multi-task)
+        gradient_accumulation_steps: Number of steps to accumulate gradients before updating parameters
     """
     model.train()
     epoch_loss = 0
@@ -859,8 +861,9 @@ def train(
         if multi_task:
             y_dict = split_multi_task_labels(y, task_names)
 
-        # Clear gradients explicitly before forward pass
-        optimizer.zero_grad()
+        # Clear gradients at the start of accumulation cycle
+        if (step - 1) % gradient_accumulation_steps == 0:
+            optimizer.zero_grad()
 
         with torch.autocast("cuda"):
             logit_map = model(x)
@@ -878,23 +881,28 @@ def train(
                 # DiceCELoss handles one-hot encoding internally
                 loss = loss_function(logit_map, y)
 
-        # Store loss value before cleanup
-        loss_value = loss.item()
+            # Normalize loss by accumulation steps for proper gradient averaging
+            loss = loss / gradient_accumulation_steps
+
+        # Store loss value before cleanup (multiply back for logging actual loss)
+        loss_value = loss.item() * gradient_accumulation_steps
 
         scaler.scale(loss).backward()
         epoch_loss += loss_value
-        scaler.unscale_(optimizer)
-        scaler.step(optimizer)
-        scaler.update()
-        scheduler.step()
+
+        # Update parameters only at accumulation boundaries
+        if step % gradient_accumulation_steps == 0:
+            scaler.unscale_(optimizer)
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            optimizer.zero_grad()
 
         # Explicitly delete variables to free GPU memory immediately
         if multi_task:
             del x, y, y_dict, logit_map, loss
         else:
             del x, y, logit_map, loss
-        # Clear gradients after step to ensure no gradient accumulation
-        optimizer.zero_grad()
 
         # Force garbage collection and cache clearing more frequently
         if step % 10 == 0:
@@ -1442,6 +1450,13 @@ if __name__ == "__main__":
         help="Enable multi-task learning mode. Requires dataset with multi-task labels "
         "(data.json with 'multi_task': true). Only supported for UNETR and SwinUNETR.",
     )
+    p.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of gradient accumulation steps. Effective batch size = batch_size * gradient_accumulation_steps. "
+        "For example, batch_size=4 with gradient_accumulation_steps=2 equals batch_size=8 without accumulation.",
+    )
     args = p.parse_args()
 
     # マルチタスクモードのバリデーション
@@ -1475,6 +1490,12 @@ if __name__ == "__main__":
     with open(training_log_path, "w") as f:
         f.write(str(args) + "\n")
         f.write(f"Random seed: {args.seed}\n")
+        if args.gradient_accumulation_steps > 1:
+            effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+            f.write(
+                f"Gradient accumulation steps: {args.gradient_accumulation_steps}\n"
+            )
+            f.write(f"Effective batch size: {effective_batch_size}\n")
         f.write("=" * 50 + "\n")
     print(f"Training log will be saved to {training_log_path}")
     print(f"Output directory: {out_dir}")
@@ -1606,6 +1627,14 @@ if __name__ == "__main__":
 
     print(f"Starting training with learning rate: {args.learning_rate}")
     print("Starting training...")
+    if args.gradient_accumulation_steps > 1:
+        effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+        print(
+            f"Gradient accumulation enabled: {args.gradient_accumulation_steps} steps"
+        )
+        print(
+            f"Effective batch size: {effective_batch_size} (batch_size={args.batch_size} × accumulation={args.gradient_accumulation_steps})"
+        )
     time_start = time.time()
     while global_step < max_iterations:
         global_step, dice_val_best, global_step_best = train(
@@ -1620,6 +1649,7 @@ if __name__ == "__main__":
             multi_task=args.multi_task,
             task_out_channels=task_out_channels,
             task_names=task_names,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
     time_end = time.time()
     print(
