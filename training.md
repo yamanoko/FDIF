@@ -14,6 +14,7 @@
 ### 2. データ処理機能
 - **実データ対応**: BTCV等の医療画像データセット
 - **合成データ対応**: SDF生成データセット
+- **複数モダリティ対応**: DWI+ADC（ISLES）など複数チャンネル入力
 - **データ拡張**: フリップ、回転、強度シフト等
 - **自動前処理**: 正規化、クロップ、リサンプリング
 
@@ -50,6 +51,7 @@ python training.py \
 | `--pretraining_out_channel` | - | 14 | 事前訓練モデルの出力チャンネル数 |
 | `--grid_size` | - | [96,96,96] | 入力グリッドサイズ |
 | `--out_channel` | - | 14 | 出力チャンネル数（クラス数+1、背景含む） |
+| `--in_channels` | - | 1 | 入力チャンネル数（モダリティ数） |
 | `--feature_size` | - | 自動設定 | 特徴量サイズ |
 | `--batch_size` | - | 1 | バッチサイズ |
 | `--max_iterations` | - | 30000 | 最大訓練イテレーション数 |
@@ -129,6 +131,88 @@ python training.py \
     --grid_size 96 96 96
 ```
 
+#### 6. 複数モダリティデータでの訓練（例：ISLES DWI+ADC）
+```bash
+# DWI+ADCの2モダリティ（ISLESデータ）
+python training.py \
+    --data_json_path ~/ISLES_fdsls4seg/data.json \
+    --model_name vnet \
+    --in_channels 2 \
+    --out_channel 2 \
+    --is_real_data \
+    --grid_size 96 96 96 \
+    --max_iterations 30000
+
+# 複数モダリティ+SwinUNETR
+python training.py \
+    --data_json_path ~/ISLES_fdsls4seg/data.json \
+    --model_name swin_unetr \
+    --in_channels 2 \
+    --out_channel 2 \
+    --is_real_data \
+    --feature_size 48 \
+    --grid_size 96 96 96
+```
+
+## 複数モダリティ（マルチモーダル）入力
+
+### 概要
+トレーニングスクリプトは複数のモダリティ（例：DWI、ADC、T1、T2など）を持つ医療画像をサポートしています。
+
+### 入力画像形式
+複数モダリティデータは4次元NIfTIファイルである必要があります：
+- **形状**: (C, D, H, W) ここで C = モダリティ数
+- **例**:
+  - ISLES (DWI + ADC): (2, 96, 112, 96)
+  - T1 + T2 + FLAIR: (3, 256, 256, 128)
+
+### パラメータ設定
+```bash
+--in_channels 2      # DWI + ADC
+--in_channels 3      # T1 + T2 + FLAIR
+--in_channels 4      # 4つのモダリティ
+```
+
+### 実装例
+```bash
+# ISLESデータセット（DWI + ADC）の訓練
+python training.py \
+    --data_json_path ~/ISLES_fdsls4seg/data.json \
+    --model_name vnet \
+    --in_channels 2 \
+    --out_channel 2 \
+    --is_real_data \
+    --grid_size 96 96 96
+```
+
+### 注意点
+1. すべての入力画像は同じ数のチャンネルを持つ必要があります
+2. チャンネルの順序は統一されている必要があります（例：常にDWI、ADCの順）
+3. データセット変換時に正しくチャンネルが統合されていることを確認してください
+4. 事前訓練済みモデルを使用する場合、`--in_channels`と訓練時の値が一致する必要があります
+
+### データセット変換例
+ISLES-2022をFDSLxSDF4Seg形式に変換する場合：
+```bash
+# 1. nnUNet形式に変換
+python convert_isles_nnunet.py \
+    -i /path/to/ISLES-2022 \
+    -o $nnUNet_raw
+
+# 2. FDSLxSDF4Seg形式に変換（チャンネル統合）
+python convert_nnunet_to_fdsls4seg.py \
+    --input $nnUNet_raw/Dataset500_ISLES2022 \
+    --output ~/ISLES_fdsls4seg
+
+# 3. 2チャンネルで訓練
+python training.py \
+    --data_json_path ~/ISLES_fdsls4seg/data.json \
+    --model_name vnet \
+    --in_channels 2 \
+    --out_channel 2 \
+    --is_real_data
+```
+
 ## データ要件
 
 ### データセットJSON形式
@@ -147,8 +231,10 @@ python training.py \
 
 ### 画像形式
 - **ファイル形式**: NIfTI (.nii.gz)
-- **次元**: 3D (D × H × W)
-- **画像**: グレースケール強度値
+- **次元**: 
+  - 単一モダリティ: 3D (D × H × W)
+  - 複数モダリティ: 4D (C × D × H × W) ここで C = `--in_channels`
+- **画像**: グレースケール強度値（正規化推奨）
 - **ラベル**: 整数値クラスID（0=背景、1-N=各クラス）
 
 ### プリミティブ選択によるクラス数変更

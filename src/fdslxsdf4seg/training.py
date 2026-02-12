@@ -410,6 +410,7 @@ def create_model(
     use_checkpoint=False,
     multi_task=False,
     task_out_channels=None,
+    in_channels=1,
 ):
     """Create segmentation model.
 
@@ -424,6 +425,7 @@ def create_model(
         multi_task: If True, create multi-task model
         task_out_channels: Dict of task -> num_classes for multi-task mode
             e.g., {"shape": 5, "displacement": 3, "mapper": 3}
+        in_channels: Number of input channels (default: 1 for single modality)
     """
     # マルチタスクモードのバリデーション
     if multi_task:
@@ -439,7 +441,7 @@ def create_model(
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
             model = VNet(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
             )
@@ -450,7 +452,7 @@ def create_model(
             print(f"Model {model_name} loaded from {pretrained_path}")
         else:
             model = VNet(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=out_channel,
                 spatial_dims=3,
             )
@@ -460,7 +462,7 @@ def create_model(
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
             model = UNETR(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
                 feature_size=fs,
@@ -475,7 +477,7 @@ def create_model(
             print(f"Model {model_name} loaded from {pretrained_path}")
         else:
             model = UNETR(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=out_channel,
                 spatial_dims=3,
                 feature_size=fs,
@@ -495,7 +497,7 @@ def create_model(
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
             model = SwinUNETR(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
                 feature_size=fs,
@@ -513,7 +515,7 @@ def create_model(
                 print("Gradient checkpointing enabled for SwinUNETR")
         else:
             model = SwinUNETR(
-                in_channels=1,
+                in_channels=in_channels,
                 out_channels=out_channel,
                 spatial_dims=3,
                 feature_size=fs,
@@ -1457,6 +1459,14 @@ if __name__ == "__main__":
         help="Number of gradient accumulation steps. Effective batch size = batch_size * gradient_accumulation_steps. "
         "For example, batch_size=4 with gradient_accumulation_steps=2 equals batch_size=8 without accumulation.",
     )
+    p.add_argument(
+        "--in_channels",
+        type=int,
+        default=1,
+        help="Number of input channels (modalities). "
+        "Use 1 for single modality (e.g., CT), 2 for dual modality (e.g., DWI+ADC from ISLES). "
+        "Input images must be 4D NIfTI files with shape (C, D, H, W) where C = in_channels.",
+    )
     args = p.parse_args()
 
     # マルチタスクモードのバリデーション
@@ -1545,6 +1555,7 @@ if __name__ == "__main__":
         use_checkpoint=args.use_checkpoint,
         multi_task=args.multi_task,
         task_out_channels=task_out_channels,
+        in_channels=args.in_channels,
     )
     if args.multi_task:
         print(f"Multi-task model {args.model_name} created.")
