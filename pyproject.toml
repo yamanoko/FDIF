@@ -19,6 +19,7 @@ dependencies = [
     "plotly>=6.3.0",
     "kaleido>=1.0.0",
     "blosc2>=4.0.0",
+    "einops>=0.8.2",
 ]
 
 [build-system]

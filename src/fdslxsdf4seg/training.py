@@ -400,6 +400,135 @@ def split_multi_task_labels(labels: torch.Tensor, task_names: list) -> dict:
     return result
 
 
+def adapt_input_channel_weights(
+    state_dict, pretraining_in_channels, target_in_channels, model_name
+):
+    """事前学習モデルの入力層の重みを、異なるチャンネル数のモデルに適合させる。
+
+    1チャンネルで学習した重みを複数チャンネルモデルに転写する場合、
+    各チャンネルに同じ重みをコピーし、値を 1/target_in_channels でスケールする。
+    これにより、入力の合計が元のモデルと近い値になる。
+
+    Args:
+        state_dict: 事前学習モデルのstate_dict
+        pretraining_in_channels: 事前学習モデルの入力チャンネル数
+        target_in_channels: 新しいモデルの入力チャンネル数
+        model_name: モデル名 ("vnet", "unetr", "swin_unetr")
+
+    Returns:
+        修正されたstate_dict
+    """
+    if pretraining_in_channels == target_in_channels:
+        return state_dict
+
+    # モデルごとの入力層の重みキーを特定
+    input_weight_keys = _find_input_weight_keys(state_dict, model_name)
+
+    if not input_weight_keys:
+        print(
+            f"Warning: Could not find input layer weight keys for {model_name}. "
+            "Skipping input channel adaptation."
+        )
+        return state_dict
+
+    for key in input_weight_keys:
+        old_weight = state_dict[key]
+        # 重みの形状: (out_features, in_channels, *kernel_size)
+        if old_weight.shape[1] != pretraining_in_channels:
+            continue
+
+        if pretraining_in_channels == 1 and target_in_channels > 1:
+            # 1ch → Nch: 各チャンネルに同じ重みをコピーしてスケーリング
+            new_weight = old_weight.repeat(
+                1, target_in_channels, *([1] * (old_weight.dim() - 2))
+            )
+            new_weight = new_weight / target_in_channels
+            state_dict[key] = new_weight
+            print(
+                f"  Adapted '{key}': {old_weight.shape} -> {new_weight.shape} "
+                f"(copied & scaled by 1/{target_in_channels})"
+            )
+        elif pretraining_in_channels < target_in_channels:
+            # Mch → Nch (M>1, N>M): 既存チャンネルをコピーし残りを平均で埋める
+            repeats = target_in_channels // pretraining_in_channels
+            remainder = target_in_channels % pretraining_in_channels
+            parts = [old_weight] * repeats
+            if remainder > 0:
+                parts.append(old_weight[:, :remainder])
+            new_weight = torch.cat(parts, dim=1)
+            new_weight = new_weight * (pretraining_in_channels / target_in_channels)
+            state_dict[key] = new_weight
+            print(
+                f"  Adapted '{key}': {old_weight.shape} -> {new_weight.shape} "
+                f"(tiled & scaled)"
+            )
+        elif pretraining_in_channels > target_in_channels:
+            # Nch → Mch (N>M): 先頭チャンネルを切り出す
+            new_weight = old_weight[:, :target_in_channels]
+            state_dict[key] = new_weight
+            print(
+                f"  Adapted '{key}': {old_weight.shape} -> {new_weight.shape} "
+                f"(truncated)"
+            )
+
+    # 対応するバイアスキーは形状が変わらないのでそのまま
+    return state_dict
+
+
+def _find_input_weight_keys(state_dict, model_name):
+    """モデルの入力層にあたる重みキーを特定する。
+
+    入力チャンネル数に依存する全てのConv層のweightキーを返す。
+    UNETR: patch_embedding + encoder1 (raw input処理パス)
+    SwinUNETR: patch_embed.proj + encoder1 (raw input処理パス)
+    VNet: in_tr のConv層
+
+    Args:
+        state_dict: モデルのstate_dict
+        model_name: モデル名
+
+    Returns:
+        入力層の重みキーのリスト
+    """
+    input_keys = []
+
+    if model_name == "vnet":
+        # VNetの入力層: in_tr.conv_block.conv.weight
+        for key in state_dict:
+            if "in_tr" in key and "weight" in key and "conv" in key:
+                input_keys.append(key)
+                break
+    elif model_name == "unetr":
+        # UNETRの入力層:
+        #   - vit.patch_embedding.patch_embeddings.weight (ViTパッチ埋め込み)
+        #   - encoder1.layer.conv*.conv.weight (raw input処理パス)
+        for key in state_dict:
+            if "patch_embedding" in key and "weight" in key:
+                input_keys.append(key)
+            elif key.startswith("encoder1.") and "conv" in key and "weight" in key:
+                input_keys.append(key)
+    elif model_name == "swin_unetr":
+        # SwinUNETRの入力層:
+        #   - swinViT.patch_embed.proj.weight
+        #   - encoder1 のConv層 (raw input処理パス、存在する場合)
+        for key in state_dict:
+            if "patch_embed" in key and "proj" in key and "weight" in key:
+                input_keys.append(key)
+            elif key.startswith("encoder1.") and "conv" in key and "weight" in key:
+                input_keys.append(key)
+
+    # フォールバック: キー名から入力層を推定
+    if not input_keys:
+        for key in state_dict:
+            w = state_dict[key]
+            if w.dim() >= 4 and "weight" in key:
+                # 最初に見つかるConv層を入力層と仮定
+                input_keys.append(key)
+                break
+
+    return input_keys
+
+
 def create_model(
     model_name,
     grid_size,
@@ -407,6 +536,7 @@ def create_model(
     feature_size,
     pretrained_path=None,
     pretraining_out_channel=14,
+    pretraining_in_channels=None,
     use_checkpoint=False,
     multi_task=False,
     task_out_channels=None,
@@ -421,6 +551,10 @@ def create_model(
         feature_size: Feature size for UNETR/SwinUNETR
         pretrained_path: Path to pretrained weights
         pretraining_out_channel: Output channels of pretrained model
+        pretraining_in_channels: Input channels of pretrained model.
+            If different from in_channels, input layer weights will be adapted
+            (e.g., 1ch weights copied to each channel of multi-channel model).
+            If None, defaults to in_channels (no adaptation).
         use_checkpoint: Enable gradient checkpointing for SwinUNETR
         multi_task: If True, create multi-task model
         task_out_channels: Dict of task -> num_classes for multi-task mode
@@ -437,9 +571,23 @@ def create_model(
         if task_out_channels is None:
             raise ValueError("task_out_channels must be provided for multi-task mode.")
 
+    # 入力チャンネルの適合が必要か判定
+    _pretraining_in_ch = (
+        pretraining_in_channels if pretraining_in_channels is not None else in_channels
+    )
+    need_input_adapt = pretrained_path and (_pretraining_in_ch != in_channels)
+    if need_input_adapt:
+        print(
+            f"Input channel adaptation: pretrained={_pretraining_in_ch}ch -> target={in_channels}ch"
+        )
+
     if model_name == "vnet":
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
+            if need_input_adapt:
+                weights = adapt_input_channel_weights(
+                    weights, _pretraining_in_ch, in_channels, model_name
+                )
             model = VNet(
                 in_channels=in_channels,
                 out_channels=pretraining_out_channel,
@@ -461,9 +609,14 @@ def create_model(
         fs = feature_size or 16
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
+            if need_input_adapt:
+                weights = adapt_input_channel_weights(
+                    weights, _pretraining_in_ch, in_channels, model_name
+                )
             model = UNETR(
                 in_channels=in_channels,
                 out_channels=pretraining_out_channel,
+                img_size=grid_size,
                 spatial_dims=3,
                 feature_size=fs,
             )
@@ -479,6 +632,7 @@ def create_model(
             model = UNETR(
                 in_channels=in_channels,
                 out_channels=out_channel,
+                img_size=grid_size,
                 spatial_dims=3,
                 feature_size=fs,
             )
@@ -496,7 +650,12 @@ def create_model(
         fs = feature_size or 48
         if pretrained_path:
             weights = torch.load(pretrained_path, weights_only=True)
+            if need_input_adapt:
+                weights = adapt_input_channel_weights(
+                    weights, _pretraining_in_ch, in_channels, model_name
+                )
             model = SwinUNETR(
+                img_size=grid_size,
                 in_channels=in_channels,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
@@ -515,6 +674,7 @@ def create_model(
                 print("Gradient checkpointing enabled for SwinUNETR")
         else:
             model = SwinUNETR(
+                img_size=grid_size,
                 in_channels=in_channels,
                 out_channels=out_channel,
                 spatial_dims=3,
@@ -1467,6 +1627,15 @@ if __name__ == "__main__":
         "Use 1 for single modality (e.g., CT), 2 for dual modality (e.g., DWI+ADC from ISLES). "
         "Input images must be 4D NIfTI files with shape (C, D, H, W) where C = in_channels.",
     )
+    p.add_argument(
+        "--pretraining_in_channels",
+        type=int,
+        default=None,
+        help="Number of input channels of the pretrained model. "
+        "When the pretrained model was trained with 1 channel and the target model uses "
+        "multiple channels (--in_channels > 1), the input layer weights are copied to each "
+        "channel and scaled by 1/in_channels. If not specified, defaults to --in_channels.",
+    )
     args = p.parse_args()
 
     # マルチタスクモードのバリデーション
@@ -1552,6 +1721,7 @@ if __name__ == "__main__":
         feature_size=args.feature_size,
         pretrained_path=args.pretrained_model,
         pretraining_out_channel=args.pretraining_out_channel,
+        pretraining_in_channels=args.pretraining_in_channels,
         use_checkpoint=args.use_checkpoint,
         multi_task=args.multi_task,
         task_out_channels=task_out_channels,

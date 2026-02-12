@@ -111,6 +111,9 @@ SDFObject._sdf() → raw distance field (grid_scale=0.35 で拡大)
 - Sliding window inference: `roi_size = spatial_size` from `--grid_size`
 - Pretrained model loading: `--pretrained_model` + `--pretraining_out_channel` (adjusts final layer if class count differs)
 - **Multi-task mode**: Use `--multi_task` flag with UNETR/SwinUNETR to train 3 tasks (shape, displacement, mapper) simultaneously
+- **Input channel adaptation**: Use `--pretraining_in_channels` when fine-tuning a 1-channel pretrained model on multi-channel data.
+  - `adapt_input_channel_weights()`: 1ch→Nch は各チャンネルに重みをコピーし `1/N` でスケーリング。Mch→Nch (M<N) はタイルコピー+スケーリング。N>M→M は先頭チャンネルを切り出し。
+  - `_find_input_weight_keys()`: VNet (`in_tr.conv`), UNETR (`patch_embedding`), SwinUNETR (`patch_embed.proj`) の入力Convキーを自動検出
 
 ## Command Patterns
 
@@ -263,6 +266,21 @@ uv run python src/fdslxsdf4seg/training.py \
     --is_real_data \
     --grid_size 96 96 96
 ```
+
+**Fine-tune with Input Channel Adaptation** (1ch pretrained → multi-channel):
+```bash
+uv run python src/fdslxsdf4seg/training.py \
+    --data_json_path ./multi_modal_dataset/data.json \
+    --model_name swin_unetr \
+    --pretrained_model ./training_output/swin_unetr/model_best.pth \
+    --pretraining_out_channel 7 \
+    --pretraining_in_channels 1 \
+    --in_channels 2 \
+    --out_channel 14 \
+    --grid_size 96 96 96
+```
+→ 1チャンネルで学習した重みを2チャンネル入力モデルに転写してfine-tuning
+→ 入力層の重みが各チャンネルにコピーされ、1/2でスケーリングされる
 
 ## Development Environment
 
