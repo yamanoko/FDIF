@@ -632,7 +632,6 @@ def create_model(
             model = UNETR(
                 in_channels=in_channels,
                 out_channels=out_channel,
-                img_size=grid_size,
                 spatial_dims=3,
                 feature_size=fs,
             )
@@ -655,7 +654,6 @@ def create_model(
                     weights, _pretraining_in_ch, in_channels, model_name
                 )
             model = SwinUNETR(
-                img_size=grid_size,
                 in_channels=in_channels,
                 out_channels=pretraining_out_channel,
                 spatial_dims=3,
@@ -674,7 +672,6 @@ def create_model(
                 print("Gradient checkpointing enabled for SwinUNETR")
         else:
             model = SwinUNETR(
-                img_size=grid_size,
                 in_channels=in_channels,
                 out_channels=out_channel,
                 spatial_dims=3,
