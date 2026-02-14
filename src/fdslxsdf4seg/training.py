@@ -35,6 +35,7 @@ from monai.transforms import (
     RandShiftIntensityd,
     ScaleIntensityRanged,
     Spacingd,
+    SpatialPadd,
 )
 from torch.nn import CrossEntropyLoss, ModuleDict
 from tqdm import tqdm
@@ -286,6 +287,11 @@ def make_data_loder(
     train_transforms = base_transforms.copy()
     train_transforms.extend(
         [
+            SpatialPadd(
+                keys=["image", "label"],
+                spatial_size=spatial_size,
+                mode="constant",
+            ),
             EnsureTyped(keys=["image", "label"], device=device, track_meta=False),
             RandCropByPosNegLabeld(
                 keys=["image", "label"],
