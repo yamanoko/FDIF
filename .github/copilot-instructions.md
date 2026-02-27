@@ -46,19 +46,11 @@ The codebase's key innovation is a **four-layer primitive composition system**:
 
 ### Key Data Flow
 ```
-# Segmentation (MONAI)
 SDFObject._sdf() → raw distance field
 → DisplacementFunction.apply() → deformed distance field (optional)
 → SDFMapper.apply() → intensity volume
 → PyTorch Dataset → .nii.gz files
 → MONAI training pipeline
-
-# Classification (SSL3D_classification)
-SDFObject._sdf() → raw distance field (grid_scale=0.35 で拡大)
-→ DisplacementFunction.apply() → deformed distance field (optional)
-→ SDFMapper.apply() → intensity volume
-→ Z-Score正規化 → Blosc2 (.b2nd) ファイル
-→ SSL3D_classification training pipeline
 ```
 
 ## Critical Patterns & Conventions
@@ -90,30 +82,12 @@ SDFObject._sdf() → raw distance field (grid_scale=0.35 で拡大)
 - Generated files: `imagesTr/`, `labelsTr/`, `data.json` (MONAI-compatible Decathlon format)
 - Visualization outputs: Plotly 3D HTML + slice PNGs in `visualizations/`
 
-### Classification Dataset Generation (`generate_sdf_dataset_classification.py`)
-- `SDFClassificationDataset` creates volumes with **1 object per sample** for SSL3D_classification
-- **Class IDs are 0-indexed** (no background class), determined by primitive × mapper × displacement combinations
-- `--grid_scale 0.45` (default) shrinks mesh grid coordinates to make primitives fill more of the volume
-- `--samples_per_class N` controls **training** instances per class
-- Validation samples are auto-calculated: `val_per_class = ceil(N / (n_splits - 1))`
-- Total samples = `(N + val_per_class) × num_classes`
-- Train/val data are generated separately (no sklearn dependency)
-- `splits_final.json` has all folds with identical train/val split
-- `center=[0,0,0]` disables translation; rotation/shear still applied via `transform=True`
-- Z-Score normalization applied before saving: `(x - mean) / max(std, 1e-8)`
-- Output format: Blosc2 `.b2nd` (shape `(1,D,H,W)`, ZSTD clevel=8) + `labelsTr.json` + `splits_final.json`
-- Generates SSL3D_classification compatible YAML config file
-- See `SDF_CLASSIFICATION_DATASET.md` for full data specification and SSL3D DataLoader implementation guide
-
 ### Training Pipeline (`training.py`)
 - **Critical**: Match `--out_channel` to dataset's class count (read from generation logs)
 - Real data uses `CacheDataset` with aggressive transforms; synthetic uses `Dataset`
 - Sliding window inference: `roi_size = spatial_size` from `--grid_size`
 - Pretrained model loading: `--pretrained_model` + `--pretraining_out_channel` (adjusts final layer if class count differs)
 - **Multi-task mode**: Use `--multi_task` flag with UNETR/SwinUNETR to train 3 tasks (shape, displacement, mapper) simultaneously
-- **Input channel adaptation**: Use `--pretraining_in_channels` when fine-tuning a 1-channel pretrained model on multi-channel data.
-  - `adapt_input_channel_weights()`: 1ch→Nch は各チャンネルに重みをコピーし `1/N` でスケーリング。Mch→Nch (M<N) はタイルコピー+スケーリング。N>M→M は先頭チャンネルを切り出し。
-  - `_find_input_weight_keys()`: VNet (`in_tr.conv`), UNETR (`patch_embedding`), SwinUNETR (`patch_embed.proj`) の入力Convキーを自動検出
 
 ## Command Patterns
 
@@ -172,24 +146,6 @@ uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
 → Creates multi-task labels with 3 channels: shape, displacement, mapper
 → data.json includes `"multi_task": true` and `"tasks"` information
 
-### Generate Classification Dataset (SSL3D_classification)
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
-    --out_dir ./outputs/cls_my_dataset \
-    --D 96 --H 96 --W 96 \
-    --samples_per_class 50 \
-    --primitives sphere cylinder torus cone \
-    --sdf_mappers inverse_cube linear \
-    --grid_scale 0.45 \
-    --n_splits 5 \
-    --dataset_name my_sdf_cls \
-    --num_visualize 5
-```
-→ Creates 4 primitives × 2 mappers = 8 classes (0-indexed)
-→ Train: 50 samples/class = 400, Val: ceil(50/4)=13 samples/class = 104, Total: 504
-→ Output: `nnUNetResEncUNetLPlans_3d_fullres/*.b2nd` + `labelsTr.json` + `splits_final.json` + `my_sdf_cls.yaml`
-→ Data is Z-Score normalized, Blosc2 compressed, ready for SSL3D_classification
-
 ### Train Model
 ```bash
 uv run python src/fdslxsdf4seg/training.py \
@@ -242,19 +198,6 @@ uv run python visualize_primitives.py --displaced --3d \
 → Each visualization shows a single object with displacement applied
 → Primitive names are case-insensitive (converted to lowercase internally)
 
-### Generate Paper Figures
-```bash
-uv run python generate_paper_figures.py
-```
-→ Creates publication-quality figures in `visualize_output/paper_figures/<timestamp>/`
-→ Generates 5 types of figures:
-  1. `fig1_sdf_slice.png` - SDFスライス（距離グラデーション：内側青、外側赤、0は黒）
-  2. `fig2_3d_mesh.png/html` - 同じ形状の3D可視化
-  3. `fig3_mapper_*.png` - マッパー適用後のスライス（inverse_cube, linear, floor）
-  4. `fig4_displaced_*.png/html` - Displacement適用後の3D形状（turbulence, ridge, perlin）
-  5. `fig5_dataset_*.png/html` - データセット出力例（データ=統一色、ラベル=色分け）
-→ All shapes use fixed parameters for reproducibility
-
 ### Fine-tune on Real Data
 ```bash
 uv run python src/fdslxsdf4seg/training.py \
@@ -267,21 +210,6 @@ uv run python src/fdslxsdf4seg/training.py \
     --grid_size 96 96 96
 ```
 
-**Fine-tune with Input Channel Adaptation** (1ch pretrained → multi-channel):
-```bash
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./multi_modal_dataset/data.json \
-    --model_name swin_unetr \
-    --pretrained_model ./training_output/swin_unetr/model_best.pth \
-    --pretraining_out_channel 7 \
-    --pretraining_in_channels 1 \
-    --in_channels 2 \
-    --out_channel 14 \
-    --grid_size 96 96 96
-```
-→ 1チャンネルで学習した重みを2チャンネル入力モデルに転写してfine-tuning
-→ 入力層の重みが各チャンネルにコピーされ、1/2でスケーリングされる
-
 ## Development Environment
 
 ### Dependencies (pyproject.toml)
@@ -289,7 +217,6 @@ uv run python src/fdslxsdf4seg/training.py \
 - **MONAI**: 3D medical imaging transforms/models
 - **Plotly + Kaleido**: Interactive 3D visualizations
 - **nibabel**: NIfTI format I/O
-- **blosc2**: Blosc2 compressed array I/O (for SSL3D_classification compatibility)
 
 ### Code Quality
 - Ruff formatter: 88 char lines, double quotes
@@ -308,8 +235,7 @@ src/fdslxsdf4seg/
 ├── displaced_primitive.py    # Primitive × Displacement + Hybrid combinations
 ├── primitive_registry.py     # ALL_PRIMITIVES catalog + selection logic
 ├── combined_union_primitives.py  # Union of two primitives (experimental)
-├── generate_sdf_dataset.py   # Main dataset generation script (segmentation)
-├── generate_sdf_dataset_classification.py  # Classification dataset for SSL3D_classification
+├── generate_sdf_dataset.py   # Main dataset generation script
 ├── training.py               # MONAI-based training loop
 ├── lr_scheduler.py           # LinearWarmupCosineAnnealingLR
 ├── visualize_training_metrics.py  # Plot Dice scores from experiments
@@ -336,6 +262,28 @@ src/fdslxsdf4seg/
 
 ## Bug Fixes & Known Issues
 
+## Primitives Grid Visualization (`generate_100_primitives_grid.py`)
+
+- `get_primitive_params(name, grid_size)` returns fixed, grid-size-proportional parameters for each primitive type. Parameters are determined by primitive category (using `PRIMITIVE_CATEGORIES` from the registry), ensuring:
+  - All primitives occupy 50-70% of the grid (no boundary clipping)
+  - Consistent sizes within each category
+  - Convex variants use smaller base radius (0.08×G) with `second_scale=2.5`, **height=0.45×G** to make the concave neck visible
+  - Torus系: `minor_r=0.12×G` (basic/sector), `minor_r=0.10×G` (star) — 太めに設定して形状の違いを明確化
+  - Onioned Convex/Concave variants use `onion_ratio=0.50` for larger visible internal holes
+  - Other Onioned variants use `onion_ratio=0.35`
+- `compute_sdf()` accepts `**kwargs` to pass fixed parameters to primitive constructors
+- Each primitive's seed (`42 + idx`) only affects internal randomness (e.g., sector polygon vertex placement), while shape-defining parameters (radius, height, etc.) are deterministic
+- **Category-based color palette** (`CATEGORY_COLORS` dict): 20 distinct colors assigned by `PRIMITIVE_CATEGORIES`, making it easy to visually identify which category each primitive belongs to. `get_primitive_color(name)` looks up the category and returns the corresponding color tuple.
+- `plot_mesh_on_ax()` accepts optional `base_color` parameter; edge color is automatically derived from the base color
+- **`--shuffle` option**: Randomizes primitive ordering in the grid to showcase variety. Uses `--seed` (default: 42) for reproducible shuffling
+
+## Paper Figure Generation (`paper_figures/generate_paper_figures.py`)
+
+- `visualize_3d_mesh()` supports optional `slice_index` and `grid_size` parameters. When both are provided, a semi-transparent orange cutting plane is rendered at the specified slice position to indicate which 2D slice the SDF visualization corresponds to. The 3D mesh is drawn on top of the plane (higher opacity).
+- `_create_slice_plane_trace(slice_index, grid_size)` is a helper that creates a Plotly `Mesh3d` trace for the cutting plane at the given slice index along the first axis (D dimension).
+- `generate_figure_2_3d_mesh()` passes `slice_index` (center of grid) and `grid_size` to `visualize_3d_mesh()` so that Figure 2 shows the cutting plane corresponding to Figure 1's slice position.
+- `generate_figure_6_displaced_dataset_sample()` places 9 primitives (Sphere×3, Torus×2, Cylinder×2, Cone×2) in a 3×3 grid layout (centers at positions 12/32/52), each with a different displacement function (turbulence, perlin_fine, sawtooth, sharpmax, ridge, twisted_x, sharpmax_fine, ridge_coarse, perlin_more_fine), then calls `visualize_dataset_sample()` to render both unified-color data and color-coded label views. Output filenames use the prefix `fig6_displaced_dataset`.
+
 ## Extending the System
 
 ### Add New Primitive
@@ -354,6 +302,6 @@ Edit `select_primitives()` call in `SDFSegmentationDataset.__init__` to use cust
 
 ## Resources
 
-- **Documentation**: `generate_sdf_dataset.md`, `training.md`, `VISUALIZATION_README.md`, `VARIATIONS_README.md`, `SDF_CLASSIFICATION_DATASET.md`
+- **Documentation**: `generate_sdf_dataset.md`, `training.md`, `VISUALIZATION_README.md`, `VARIATIONS_README.md`
 - **Real data setup**: `BTCV/make_data_json.py` creates Decathlon-format JSON from medical scans
 - **Experiment tracking**: Check `outputs/YYYYMMDD_HHMMSS/` timestamped directories
