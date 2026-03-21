@@ -1,159 +1,159 @@
-# プリミティブ バリエーション可視化機能
+# Primitive Variation Visualization
 
-この機能は、同じプリミティブが生成時にどれほどのバリエーションを持っているかを確認するために、同じプリミティブの可視化を複数回行い、その結果の画像を並べて一枚の画像にして出力します。
+This feature visualizes the same primitive multiple times to demonstrate how much variation it exhibits during generation. The resulting images are arranged side by side and output as a single combined image.
 
-## 使用方法
+## Usage
 
-### 基本的な使用方法
+### Basic Usage
 
 ```bash
-# Sphereプリミティブの6つのバリエーションを生成
+# Generate 6 variations of the Sphere primitive
 python visualize_primitives.py --variations
 
-# 特定のプリミティブのバリエーションを生成
+# Generate variations for a specific primitive
 python visualize_primitives.py --variations --variation_primitive FiveStarPrism
 
-# バリエーション数を指定
+# Specify the number of variations
 python visualize_primitives.py --variations --variation_primitive Cylinder --num_variations 9
 
-# 出力ディレクトリを指定
+# Specify an output directory
 python visualize_primitives.py --variations --output_dir my_output --variation_primitive Torus
 ```
 
-### オプション
+### Options
 
-- `--variations`: バリエーション分析モードを有効にする
-- `--variation_primitive`: 分析するプリミティブ名（デフォルト: "Sphere"）
-- `--num_variations`: 生成するバリエーション数（デフォルト: 6）
-- `--output_dir`: 出力ディレクトリ（デフォルト: "visualize_output"）
-- `--3d`: 3D可視化も有効にする（バリエーション分析では通常無効）
+- `--variations`: Enable variation analysis mode
+- `--variation_primitive`: Name of the primitive to analyze (default: "Sphere")
+- `--num_variations`: Number of variations to generate (default: 6)
+- `--output_dir`: Output directory (default: "visualize_output")
+- `--3d`: Also enable 3D visualization (normally disabled in variation analysis)
 
-## 対応プリミティブ
+## Supported Primitives
 
-### 基本プリミティブ
-- `Sphere` - 球体
-- `Torus` - トーラス
-- `Cone` - コーン
-- `Octahedron` - 八面体
-- `Cylinder` - シリンダー
-- `ConvexCylinder` - 凸シリンダー
-- `ConcaveCylinder` - 凹シリンダー
-- `ConeCylinder` - コーンシリンダー
+### Basic Primitives
+- `Sphere` - Sphere
+- `Torus` - Torus
+- `Cone` - Cone
+- `Octahedron` - Octahedron
+- `Cylinder` - Cylinder
+- `ConvexCylinder` - Convex Cylinder
+- `ConcaveCylinder` - Concave Cylinder
+- `ConeCylinder` - Cone Cylinder
 
-### セクターポリゴンプリズム
-- `TrianglePrism` - 三角プリズム
-- `SquarePrism` - 四角プリズム
-- `PentagonPrism` - 五角プリズム
-- `HexagonPrism` - 六角プリズム
-- `HeptagonPrism` - 七角プリズム
-- `OctagonPrism` - 八角プリズム
+### Sector Polygon Prisms
+- `TrianglePrism` - Triangle Prism
+- `SquarePrism` - Square Prism
+- `PentagonPrism` - Pentagon Prism
+- `HexagonPrism` - Hexagon Prism
+- `HeptagonPrism` - Heptagon Prism
+- `OctagonPrism` - Octagon Prism
 
-### コーンプリズム
-- `TriangleConePrism` - 三角コーンプリズム
-- `SquareConePrism` - 四角コーンプリズム
-- `PentagonConePrism` - 五角コーンプリズム
-- `HexagonConePrism` - 六角コーンプリズム
+### Cone Prisms
+- `TriangleConePrism` - Triangle Cone Prism
+- `SquareConePrism` - Square Cone Prism
+- `PentagonConePrism` - Pentagon Cone Prism
+- `HexagonConePrism` - Hexagon Cone Prism
 
-### 凸/凹プリズム
-- `TriangleConvexPrism` - 三角凸プリズム
-- `SquareConvexPrism` - 四角凸プリズム
-- `TriangleConcavePrism` - 三角凹プリズム
-- `SquareConcavePrism` - 四角凹プリズム
+### Convex / Concave Prisms
+- `TriangleConvexPrism` - Triangle Convex Prism
+- `SquareConvexPrism` - Square Convex Prism
+- `TriangleConcavePrism` - Triangle Concave Prism
+- `SquareConcavePrism` - Square Concave Prism
 
-### スタープリズム
-- `FiveStarPrism` - 五角星プリズム
-- `SixStarPrism` - 六角星プリズム
+### Star Prisms
+- `FiveStarPrism` - Five-pointed Star Prism
+- `SixStarPrism` - Six-pointed Star Prism
 
-### トーラス系
-- `SquareTorus` - 四角トーラス
-- `PentagonTorus` - 五角トーラス
-- `HexagonTorus` - 六角トーラス
-- `FiveStarTorus` - 五角星トーラス
-- `SixStarTorus` - 六角星トーラス
+### Torus Variants
+- `SquareTorus` - Square Torus
+- `PentagonTorus` - Pentagon Torus
+- `HexagonTorus` - Hexagon Torus
+- `FiveStarTorus` - Five-pointed Star Torus
+- `SixStarTorus` - Six-pointed Star Torus
 
-### Revolution系（回転体）
-- `ThreeStarRevolution` - 三角星回転体
-- `FourStarRevolution` - 四角星回転体
-- `FiveStarRevolution` - 五角星回転体
+### Revolution Shapes (Solids of Revolution)
+- `ThreeStarRevolution` - Three-pointed Star Revolution
+- `FourStarRevolution` - Four-pointed Star Revolution
+- `FiveStarRevolution` - Five-pointed Star Revolution
 
-### Onioned系（オニオン形状）
-- `OnionedCylinder` - オニオンシリンダー
-- `OnionedTrianglePrism` - オニオン三角プリズム
-- `OnionedSquarePrism` - オニオン四角プリズム
-- `OnionedFiveStarPrism` - オニオン五角星プリズム
+### Onioned Shapes (Concentric Shell Shapes)
+- `OnionedCylinder` - Onioned Cylinder
+- `OnionedTrianglePrism` - Onioned Triangle Prism
+- `OnionedSquarePrism` - Onioned Square Prism
+- `OnionedFiveStarPrism` - Onioned Five-pointed Star Prism
 
-### Union系（組み合わせ形状）
-- `SphereCylinderUnion` - 球体シリンダー組み合わせ
-- `SphereTriangleUnion` - 球体三角組み合わせ
-- `FiveStarRevolutionCylinderUnion` - 五角星回転体シリンダー組み合わせ
-- `FiveStarRevolutionPentagonUnion` - 五角星回転体五角組み合わせ
+### Union Shapes (Combined Shapes)
+- `SphereCylinderUnion` - Sphere + Cylinder Union
+- `SphereTriangleUnion` - Sphere + Triangle Union
+- `FiveStarRevolutionCylinderUnion` - Five-pointed Star Revolution + Cylinder Union
+- `FiveStarRevolutionPentagonUnion` - Five-pointed Star Revolution + Pentagon Union
 
-## 出力
+## Output
 
-### ファイル構造
+### File Structure
 ```
 visualize_output/
 └── variations/
-    ├── sphere_var_01.png              # 個別のバリエーション画像
+    ├── sphere_var_01.png              # Individual variation images
     ├── sphere_var_02.png
     ├── ...
     ├── sphere_var_06.png
-    ├── sphere_var_01_slice.png        # スライス表示
+    ├── sphere_var_01_slice.png        # Slice views
     ├── sphere_var_02_slice.png
     ├── ...
-    └── sphere_variations_combined.png # 結合された比較画像
+    └── sphere_variations_combined.png # Combined comparison image
 ```
 
-### 結合画像の特徴
-- すべてのバリエーションが一枚の画像に配置される
-- 各バリエーションには番号が振られる
-- プリミティブ名とサンプル数がタイトルに表示される
-- グリッド形式で整理された見やすいレイアウト
+### Combined Image Features
+- All variations are arranged in a single image
+- Each variation is numbered
+- The primitive name and sample count are shown in the title
+- Clean grid layout for easy comparison
 
-## 使用例
+## Examples
 
-### 基本的なバリエーション分析
+### Basic Variation Analysis
 ```bash
-# Sphereの基本的なバリエーション確認
+# Basic variation check for Sphere
 python visualize_primitives.py --variations
 
-# より多くのバリエーションで詳細分析
+# Detailed analysis with more variations
 python visualize_primitives.py --variations --num_variations 12 --variation_primitive FiveStarPrism
 ```
 
-### 複雑なプリミティブの分析
+### Complex Primitive Analysis
 ```bash
-# Union系プリミティブのバリエーション
+# Variations of Union primitives
 python visualize_primitives.py --variations --variation_primitive FiveStarRevolutionCylinderUnion --num_variations 9
 
-# Onioned系プリミティブの分析
+# Onioned primitive analysis
 python visualize_primitives.py --variations --variation_primitive OnionedFiveStarPrism --num_variations 6
 ```
 
-## 必要な依存関係
+## Dependencies
 
-バリエーション画像の結合機能を使用するには、以下のライブラリが必要です：
+The following library is required for the variation image combining feature:
 
 ```bash
 pip install Pillow
 ```
 
-Pillowがインストールされていない場合、個別の画像は生成されますが、結合画像は作成されません。
+If Pillow is not installed, individual images will still be generated, but the combined image will not be created.
 
-## 統計情報
+## Statistics
 
-実行時には、各バリエーションについて以下の統計情報が表示されます：
-- `inside`: プリミティブ内部のボクセル数
-- `outside`: プリミティブ外部のボクセル数
+During execution, the following statistics are displayed for each variation:
+- `inside`: Number of voxels inside the primitive
+- `outside`: Number of voxels outside the primitive
 
-これにより、各バリエーションの大きさや形状の違いを数値的に確認できます。
+This allows you to numerically verify differences in size and shape across variations.
 
-## 注意事項
+## Notes
 
-1. **ランダム性**: プリミティブによってはランダムパラメータが含まれているため、実行するたびに異なるバリエーションが生成される場合があります。
+1. **Randomness**: Some primitives include random parameters, so different variations may be generated each time you run the script.
 
-2. **メモリ使用量**: 多数のバリエーションを生成する場合は、メモリ使用量にご注意ください。
+2. **Memory Usage**: Be mindful of memory usage when generating a large number of variations.
 
-3. **実行時間**: プリミティブの複雑さとバリエーション数に応じて、実行時間が長くなる場合があります。
+3. **Execution Time**: Execution time may increase depending on the complexity of the primitive and the number of variations.
 
-4. **3D可視化**: バリエーション分析では通常3D可視化は無効ですが、`--3d`オプションで有効にできます。ただし、多数のバリエーションで3D可視化を有効にすると、処理時間が大幅に増加します。
+4. **3D Visualization**: 3D visualization is normally disabled in variation analysis, but it can be enabled with the `--3d` option. Note that enabling 3D visualization with many variations will significantly increase processing time.

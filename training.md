@@ -1,37 +1,37 @@
 # training.py
 
-## 概要
+## Overview
 
-`training.py`は、MONAIフレームワークを使用して3Dセグメンテーションモデルを訓練するためのPythonスクリプトです。VNet、UNETR、SwinUNETRなどの最新の3Dセグメンテーションアーキテクチャをサポートし、実データと合成データの両方に対応しています。事前訓練済みモデルからのファインチューニングも可能です。
+`training.py` is a Python script for training 3D segmentation models using the MONAI framework. It supports modern 3D segmentation architectures such as VNet, UNETR, and SwinUNETR, and works with both real and synthetic data. Fine-tuning from pre-trained models is also supported.
 
-## 主要機能
+## Key Features
 
-### 1. サポートモデル
-- **VNet**: 3D医療画像セグメンテーション用のV字型ネットワーク
-- **UNETR**: Vision Transformer基盤のU字型ネットワーク
-- **SwinUNETR**: Swin Transformer基盤のU字型ネットワーク
+### 1. Supported Models
+- **VNet**: V-shaped network for 3D medical image segmentation
+- **UNETR**: Vision Transformer-based U-shaped network
+- **SwinUNETR**: Swin Transformer-based U-shaped network
 
-### 2. データ処理機能
-- **実データ対応**: BTCV等の医療画像データセット
-- **合成データ対応**: SDF生成データセット
-- **複数モダリティ対応**: DWI+ADC（ISLES）など複数チャンネル入力
-- **データ拡張**: フリップ、回転、強度シフト等
-- **自動前処理**: 正規化、クロップ、リサンプリング
+### 2. Data Processing
+- **Real data support**: Medical image datasets such as BTCV
+- **Synthetic data support**: SDF-generated datasets
+- **Multi-modality support**: Multiple channel inputs (e.g., DWI+ADC for ISLES)
+- **Data augmentation**: Flip, rotation, intensity shift, etc.
+- **Automatic preprocessing**: Normalization, cropping, resampling
 
-### 3. 訓練機能
-- **混合精度訓練**: CUDA AMPによる高速化
-- **スライディングウィンドウ推論**: 大きな画像の効率的な処理
-- **メトリクス追跡**: Dice係数による性能評価
-- **モデル保存**: 最高性能モデルの自動保存
+### 3. Training Features
+- **Mixed precision training**: Speedup via CUDA AMP
+- **Sliding window inference**: Efficient processing of large images
+- **Metrics tracking**: Performance evaluation via Dice coefficient
+- **Model saving**: Automatic saving of the best model
 
-### 4. 事前訓練サポート
-- 事前訓練済みモデルの読み込み
-- 出力層の調整による転移学習
-- ファインチューニングと从零训练の両方に対応
+### 4. Pre-training Support
+- Load pre-trained models
+- Transfer learning with output layer adjustment
+- Supports both fine-tuning and training from scratch
 
-## 使用法
+## Usage
 
-### 基本的な使用方法
+### Basic Usage
 
 ```bash
 python training.py \
@@ -40,38 +40,38 @@ python training.py \
     --out_channel 5
 ```
 
-### パラメータ詳細
+### Parameter Reference
 
-| パラメータ | 必須 | デフォルト値 | 説明 |
-|-----------|------|-------------|------|
-| `--data_json_path` | ✓ | - | データセットJSONファイルのパス |
-| `--model_name` | ✓ | - | モデル名（vnet/unetr/swin_unetr） |
-| `--is_real_data` | - | False | 実データ使用フラグ |
-| `--pretrained_model` | - | None | 事前訓練済みモデルのパス |
-| `--pretraining_out_channel` | - | 14 | 事前訓練モデルの出力チャンネル数 |
-| `--grid_size` | - | [96,96,96] | 入力グリッドサイズ |
-| `--out_channel` | - | 14 | 出力チャンネル数（クラス数+1、背景含む） |
-| `--in_channels` | - | 1 | 入力チャンネル数（モダリティ数） |
-| `--feature_size` | - | 自動設定 | 特徴量サイズ |
-| `--batch_size` | - | 1 | バッチサイズ |
-| `--max_iterations` | - | 30000 | 最大訓練イテレーション数 |
-| `--out_dir` | - | 自動生成 | 出力ディレクトリ |
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--data_json_path` | Yes | - | Path to dataset JSON file |
+| `--model_name` | Yes | - | Model name (vnet/unetr/swin_unetr) |
+| `--is_real_data` | - | False | Flag to use real data |
+| `--pretrained_model` | - | None | Path to pre-trained model |
+| `--pretraining_out_channel` | - | 14 | Output channels of the pre-trained model |
+| `--grid_size` | - | [96,96,96] | Input grid size |
+| `--out_channel` | - | 14 | Output channels (number of classes including background) |
+| `--in_channels` | - | 1 | Input channels (number of modalities) |
+| `--feature_size` | - | Auto | Feature size |
+| `--batch_size` | - | 1 | Batch size |
+| `--max_iterations` | - | 30000 | Maximum training iterations |
+| `--out_dir` | - | Auto-generated | Output directory |
 
-### 出力チャンネル数の設定
+### Setting the Output Channel Count
 
-プリミティブ選択により出力チャンネル数が変わります：
+The output channel count varies depending on primitive selection:
 
-| プリミティブ構成 | 出力チャンネル数 | 例 |
-|-----------------|----------------|-----|
-| 単一プリミティブ | 2 | `--primitives sphere --out_channel 2` |
-| 2種類プリミティブ | 3 | `--primitives sphere box --out_channel 3` |
-| 3種類プリミティブ | 4 | `--primitives sphere box cylinder --out_channel 4` |
-| 全プリミティブ | 5 | `--primitives sphere box cylinder torus --out_channel 5` |
-| 実データ（BTCV） | 14 | `--is_real_data --out_channel 14` |
+| Primitive Configuration | Output Channels | Example |
+|------------------------|----------------|---------|
+| Single primitive | 2 | `--primitives sphere --out_channel 2` |
+| 2 primitives | 3 | `--primitives sphere box --out_channel 3` |
+| 3 primitives | 4 | `--primitives sphere box cylinder --out_channel 4` |
+| All primitives | 5 | `--primitives sphere box cylinder torus --out_channel 5` |
+| Real data (BTCV) | 14 | `--is_real_data --out_channel 14` |
 
-### 使用例
+### Examples
 
-#### 1. 合成データでの基本訓練
+#### 1. Basic Training on Synthetic Data
 ```bash
 python training.py \
     --data_json_path ./synthetic_dataset/data/data.json \
@@ -81,7 +81,7 @@ python training.py \
     --max_iterations 10000
 ```
 
-#### 2. 実データでの訓練
+#### 2. Training on Real Data
 ```bash
 python training.py \
     --data_json_path ./BTCV/dataset.json \
@@ -92,7 +92,7 @@ python training.py \
     --batch_size 2
 ```
 
-#### 3. 事前訓練済みモデルのファインチューニング
+#### 3. Fine-Tuning from a Pre-Trained Model
 ```bash
 python training.py \
     --data_json_path ./data/data.json \
@@ -103,7 +103,7 @@ python training.py \
     --grid_size 96 96 96
 ```
 
-#### 4. 高解像度データでの訓練
+#### 4. Training on High-Resolution Data
 ```bash
 python training.py \
     --data_json_path ./data/data.json \
@@ -114,16 +114,16 @@ python training.py \
     --max_iterations 50000
 ```
 
-#### 5. 特定プリミティブデータでの訓練
+#### 5. Training on Specific Primitive Data
 ```bash
-# 単一プリミティブデータ（2クラス: 背景+プリミティブ）
+# Single primitive data (2 classes: background + primitive)
 python training.py \
     --data_json_path ./sphere_only_dataset/data/data.json \
     --model_name vnet \
     --out_channel 2 \
     --grid_size 64 64 64
 
-# 複数プリミティブデータ（3クラス: 背景+2プリミティブ）
+# Multiple primitive data (3 classes: background + 2 primitives)
 python training.py \
     --data_json_path ./sphere_box_dataset/data/data.json \
     --model_name swin_unetr \
@@ -131,9 +131,9 @@ python training.py \
     --grid_size 96 96 96
 ```
 
-#### 6. 複数モダリティデータでの訓練（例：ISLES DWI+ADC）
+#### 6. Multi-Modality Training (e.g., ISLES DWI+ADC)
 ```bash
-# DWI+ADCの2モダリティ（ISLESデータ）
+# 2-modality (DWI+ADC for ISLES data)
 python training.py \
     --data_json_path ~/ISLES_fdsls4seg/data.json \
     --model_name vnet \
@@ -143,7 +143,7 @@ python training.py \
     --grid_size 96 96 96 \
     --max_iterations 30000
 
-# 複数モダリティ+SwinUNETR
+# Multi-modality + SwinUNETR
 python training.py \
     --data_json_path ~/ISLES_fdsls4seg/data.json \
     --model_name swin_unetr \
@@ -154,28 +154,28 @@ python training.py \
     --grid_size 96 96 96
 ```
 
-## 複数モダリティ（マルチモーダル）入力
+## Multi-Modality Input
 
-### 概要
-トレーニングスクリプトは複数のモダリティ（例：DWI、ADC、T1、T2など）を持つ医療画像をサポートしています。
+### Overview
+The training script supports medical images with multiple modalities (e.g., DWI, ADC, T1, T2, etc.).
 
-### 入力画像形式
-複数モダリティデータは4次元NIfTIファイルである必要があります：
-- **形状**: (C, D, H, W) ここで C = モダリティ数
-- **例**:
+### Input Image Format
+Multi-modality data must be stored as 4D NIfTI files:
+- **Shape**: (C, D, H, W) where C = number of modalities
+- **Examples**:
   - ISLES (DWI + ADC): (2, 96, 112, 96)
   - T1 + T2 + FLAIR: (3, 256, 256, 128)
 
-### パラメータ設定
+### Parameter Settings
 ```bash
 --in_channels 2      # DWI + ADC
 --in_channels 3      # T1 + T2 + FLAIR
---in_channels 4      # 4つのモダリティ
+--in_channels 4      # 4 modalities
 ```
 
-### 実装例
+### Usage Example
 ```bash
-# ISLESデータセット（DWI + ADC）の訓練
+# Training on ISLES dataset (DWI + ADC)
 python training.py \
     --data_json_path ~/ISLES_fdsls4seg/data.json \
     --model_name vnet \
@@ -185,26 +185,26 @@ python training.py \
     --grid_size 96 96 96
 ```
 
-### 注意点
-1. すべての入力画像は同じ数のチャンネルを持つ必要があります
-2. チャンネルの順序は統一されている必要があります（例：常にDWI、ADCの順）
-3. データセット変換時に正しくチャンネルが統合されていることを確認してください
-4. 事前訓練済みモデルを使用する場合、`--in_channels`と訓練時の値が一致する必要があります
+### Important Notes
+1. All input images must have the same number of channels
+2. Channel ordering must be consistent (e.g., always DWI then ADC)
+3. Ensure channels are merged correctly during dataset conversion
+4. When using a pre-trained model, `--in_channels` must match the value used during training
 
-### データセット変換例
-ISLES-2022をFDSLxSDF4Seg形式に変換する場合：
+### Dataset Conversion Example
+Converting ISLES-2022 to FDSLxSDF4Seg format:
 ```bash
-# 1. nnUNet形式に変換
+# 1. Convert to nnUNet format
 python convert_isles_nnunet.py \
     -i /path/to/ISLES-2022 \
     -o $nnUNet_raw
 
-# 2. FDSLxSDF4Seg形式に変換（チャンネル統合）
+# 2. Convert to FDSLxSDF4Seg format (channel merging)
 python convert_nnunet_to_fdsls4seg.py \
     --input $nnUNet_raw/Dataset500_ISLES2022 \
     --output ~/ISLES_fdsls4seg
 
-# 3. 2チャンネルで訓練
+# 3. Train with 2 channels
 python training.py \
     --data_json_path ~/ISLES_fdsls4seg/data.json \
     --model_name vnet \
@@ -213,9 +213,9 @@ python training.py \
     --is_real_data
 ```
 
-## データ要件
+## Data Requirements
 
-### データセットJSON形式
+### Dataset JSON Format
 ```json
 {
     "training": [
@@ -229,166 +229,166 @@ python training.py \
 }
 ```
 
-### 画像形式
-- **ファイル形式**: NIfTI (.nii.gz)
-- **次元**: 
-  - 単一モダリティ: 3D (D × H × W)
-  - 複数モダリティ: 4D (C × D × H × W) ここで C = `--in_channels`
-- **画像**: グレースケール強度値（正規化推奨）
-- **ラベル**: 整数値クラスID（0=背景、1-N=各クラス）
+### Image Format
+- **File format**: NIfTI (.nii.gz)
+- **Dimensions**: 
+  - Single modality: 3D (D x H x W)
+  - Multiple modalities: 4D (C x D x H x W) where C = `--in_channels`
+- **Images**: Grayscale intensity values (normalization recommended)
+- **Labels**: Integer class IDs (0=background, 1–N=each class)
 
-### プリミティブ選択によるクラス数変更
+### Class Count Based on Primitive Selection
 
-生成データセットの使用プリミティブによってクラス数が変わります：
+The class count of a generated dataset depends on the primitives used:
 
 ```bash
-# 例：sphere、boxのみ使用した場合
-# クラス: 0=背景, 1=sphere, 2=box → 3クラス
+# Example: Using only sphere and box
+# Classes: 0=background, 1=sphere, 2=box → 3 classes
 --out_channel 3
 
-# 例：全プリミティブ使用した場合  
-# クラス: 0=背景, 1=sphere, 2=box, 3=cylinder, 4=torus → 5クラス
+# Example: Using all primitives
+# Classes: 0=background, 1=sphere, 2=box, 3=cylinder, 4=torus → 5 classes
 --out_channel 5
 ```
 
-## 出力構造
+## Output Structure
 
-訓練完了後、以下の構造でファイルが出力されます：
+After training completes, the following files are generated:
 
 ```
 output_directory/
-├── training_log.txt           # 訓練ログと設定
-├── best_metric_model.pth      # 最高性能モデル
-└── (将来的に追加される可能性のあるファイル)
+├── training_log.txt           # Training logs and configuration
+├── best_metric_model.pth      # Best performance model
+└── (additional files may be added in the future)
 ```
 
-## モデル詳細
+## Model Details
 
 ### VNet
-- **特徴**: 3D畳み込みベースのV字型アーキテクチャ
-- **用途**: 中程度サイズの3Dセグメンテーション
-- **メモリ**: 比較的軽量
+- **Features**: V-shaped architecture based on 3D convolutions
+- **Use case**: Medium-scale 3D segmentation
+- **Memory**: Relatively lightweight
 
 ### UNETR
-- **特徴**: Vision Transformerエンコーダ + CNNデコーダ
-- **用途**: 高精度セグメンテーション
-- **パラメータ**: `feature_size`（デフォルト: 16）
+- **Features**: Vision Transformer encoder + CNN decoder
+- **Use case**: High-accuracy segmentation
+- **Parameters**: `feature_size` (default: 16)
 
 ### SwinUNETR
-- **特徴**: Swin Transformerベースの階層的アーキテクチャ
-- **用途**: 最高精度のセグメンテーション
-- **パラメータ**: `feature_size`（デフォルト: 48）
+- **Features**: Hierarchical architecture based on Swin Transformer
+- **Use case**: Highest-accuracy segmentation
+- **Parameters**: `feature_size` (default: 48)
 
-## データ拡張
+## Data Augmentation
 
-### 実データの場合
-- スケール強度正規化（-175〜250 → 0〜1）
-- 前景クロップ
-- 方向正規化（RAS）
-- 空間リサンプリング（1.5×1.5×2.0mm）
+### For Real Data
+- Scale intensity normalization (-175 to 250 → 0 to 1)
+- Foreground crop
+- Orientation normalization (RAS)
+- Spatial resampling (1.5 x 1.5 x 2.0 mm)
 
-### 共通拡張
-- ランダムクロップ（正負サンプル考慮）
-- ランダムフリップ（各軸10%確率）
-- ランダム90度回転（10%確率）
-- ランダム強度シフト（50%確率、±10%）
+### Common Augmentations
+- Random crop (considering positive/negative samples)
+- Random flip (10% probability per axis)
+- Random 90-degree rotation (10% probability)
+- Random intensity shift (50% probability, ±10%)
 
-## 訓練設定
+## Training Configuration
 
-### 最適化
-- **オプティマイザ**: AdamW
-- **学習率**: 1e-4
-- **重み減衰**: 1e-5
-- **混合精度**: CUDA AMP使用
+### Optimization
+- **Optimizer**: AdamW
+- **Learning rate**: 1e-4
+- **Weight decay**: 1e-5
+- **Mixed precision**: Using CUDA AMP
 
-### 損失関数
-- **DiceCELoss**: Dice損失 + Cross Entropy損失
-- **One-hot変換**: 自動実行
-- **Softmax**: 自動適用
+### Loss Function
+- **DiceCELoss**: Dice loss + Cross Entropy loss
+- **One-hot conversion**: Applied automatically
+- **Softmax**: Applied automatically
 
-### 評価
-- **メトリクス**: Dice係数
-- **評価頻度**: 500イテレーション毎
-- **推論方式**: スライディングウィンドウ（重複度4）
+### Evaluation
+- **Metric**: Dice coefficient
+- **Evaluation frequency**: Every 500 iterations
+- **Inference method**: Sliding window (overlap 4)
 
-## パフォーマンス最適化
+## Performance Optimization
 
-### メモリ最適化
-1. **バッチサイズ調整**: GPUメモリに応じて1-2に設定
-2. **グリッドサイズ**: メモリ制約に応じて64-128に調整
-3. **キャッシュ設定**: データローダーのキャッシュ数を調整
+### Memory Optimization
+1. **Batch size adjustment**: Set to 1–2 depending on GPU memory
+2. **Grid size**: Adjust between 64–128 based on memory constraints
+3. **Cache settings**: Adjust data loader cache size
 
-### 速度最適化
-1. **混合精度**: 自動有効化
-2. **データローダー**: マルチプロセッシング
-3. **キャッシュデータセット**: 頻繁アクセスデータの高速化
+### Speed Optimization
+1. **Mixed precision**: Enabled automatically
+2. **Data loader**: Multi-processing
+3. **Cache dataset**: Accelerates frequently accessed data
 
-## 依存関係
+## Dependencies
 
-### 必須パッケージ
+### Required Packages
 - torch
 - monai
 - tqdm
 - argparse
 
-### 推奨環境
-- CUDA対応GPU
-- 16GB以上のGPUメモリ（高解像度データの場合）
-- SSDストレージ
+### Recommended Environment
+- CUDA-capable GPU
+- 16 GB+ GPU memory (for high-resolution data)
+- SSD storage
 
-## トラブルシューティング
+## Troubleshooting
 
-### よくある問題
+### Common Issues
 
-#### 1. メモリ不足
+#### 1. Out of Memory
 ```
-解決策:
-- batch_sizeを1に減らす
-- grid_sizeを小さくする（64×64×64など）
-- num_workersを0に設定
-```
-
-#### 2. 収束しない
-```
-解決策:
-- 学習率を下げる（1e-5など）
-- より多くのイテレーション実行
-- データ拡張を調整
+Solution:
+- Reduce batch_size to 1
+- Reduce grid_size (e.g., 64x64x64)
+- Set num_workers to 0
 ```
 
-#### 3. 事前訓練済みモデル読み込みエラー
+#### 2. Not Converging
 ```
-解決策:
-- pretraining_out_channelを正しく設定
-- モデルアーキテクチャの一致確認
-- パスの正確性確認
+Solution:
+- Lower the learning rate (e.g., 1e-5)
+- Run more iterations
+- Adjust data augmentation
 ```
 
-### デバッグのヒント
+#### 3. Pre-trained Model Loading Error
+```
+Solution:
+- Set pretraining_out_channel correctly
+- Verify model architecture match
+- Check path accuracy
+```
 
-1. **小規模実験**: 少数サンプルで動作確認
-2. **ログ確認**: training_log.txtで設定確認
-3. **GPUメモリ監視**: nvidia-smiでメモリ使用量確認
+### Debugging Tips
 
-## ベンチマークと期待性能
+1. **Small-scale experiments**: Verify with a small number of samples first
+2. **Check logs**: Verify configuration in training_log.txt
+3. **GPU memory monitoring**: Use nvidia-smi to check memory usage
 
-### 合成データ（SDF）
-- **データサイズ**: 64³
-- **クラス数**: 2-5（使用プリミティブ数+1）
-- **期待Dice**: 0.85-0.95
-- **訓練時間**: 1-2時間（RTX 3080）
+## Benchmarks and Expected Performance
 
-### 実データ（BTCV）
-- **データサイズ**: 96³
-- **クラス数**: 14
-- **期待Dice**: 0.75-0.85
-- **訓練時間**: 8-12時間（RTX 3080）
+### Synthetic Data (SDF)
+- **Data size**: 64³
+- **Classes**: 2–5 (number of primitives + 1)
+- **Expected Dice**: 0.85–0.95
+- **Training time**: 1–2 hours (RTX 3080)
 
-### 段階的学習の期待性能
+### Real Data (BTCV)
+- **Data size**: 96³
+- **Classes**: 14
+- **Expected Dice**: 0.75–0.85
+- **Training time**: 8–12 hours (RTX 3080)
 
-| 学習段階 | プリミティブ数 | クラス数 | 期待Dice | 訓練時間 |
-|---------|---------------|---------|---------|---------|
-| レベル1 | 1種類 | 2 | 0.90-0.95 | 30分 |
-| レベル2 | 2種類 | 3 | 0.88-0.93 | 45分 |
-| レベル3 | 3種類 | 4 | 0.87-0.92 | 1時間 |
-| レベル4 | 4種類 | 5 | 0.85-0.90 | 1.5時間 |
+### Expected Performance by Complexity Level
+
+| Level | Primitives | Classes | Expected Dice | Training Time |
+|-------|-----------|---------|---------------|---------------|
+| Level 1 | 1 type | 2 | 0.90–0.95 | 30 min |
+| Level 2 | 2 types | 3 | 0.88–0.93 | 45 min |
+| Level 3 | 3 types | 4 | 0.87–0.92 | 1 hour |
+| Level 4 | 4 types | 5 | 0.85–0.90 | 1.5 hours |
