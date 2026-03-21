@@ -16,3 +16,16 @@ BTCV/dataset.json
 training_output/
 paper_figures/
 generate_100_primitives_grid.py
+
+# IDE / editor
+.vscode/
+
+# Test cache
+.pytest_cache/
+
+# Test / draft files
+test_dataset.json
+intro.md
+
+# AI development instructions
+.github/copilot-instructions.md

@@ -1,645 +1,406 @@
-# FDSLxSDF4Seg
+# FDIF: Formula-Driven Supervised Learning with Implicit Functions
 
-**F**oundation **D**ataset for **S**egmentation **L**earning with **SDF**s for **3D Seg**mentation
+Official implementation of **FDIF** (**F**ormula-**D**riven supervised learning with **I**mplicit **F**unctions), a framework that generates diverse synthetic labeled 3D volumes using signed distance functions (SDFs) for supervised pre-training in 3D medical image segmentation — **without using any real data**.
 
-3Dセグメンテーションタスクのための、SDF（Signed Distance Function）ベースの合成データセット生成と深層学習モデル訓練のための統合フレームワーク。
+FDIF consistently outperforms both training from scratch and PrimGeoSeg across multiple segmentation benchmarks and architectures, achieving performance comparable to self-supervised methods that require large-scale real data.
 
-## 🎯 概要
-
-このプロジェクトは、医療画像解析や3Dコンピュータビジョンの研究において、高品質な3Dセグメンテーションモデルを効率的に開発するためのツールセットです。
-
-### 主要特徴
-
-- 🎲 **豊富な合成データ生成**: 100種類以上のSDFプリミティブと変位関数・マッパーの組み合わせによる高品質な合成データセット
-- 🔧 **ハイブリッドプリミティブシステム**: Base Primitives × SDF Mappers × Displacement Functionsの4層構成で数百種類の独自クラスを生成可能
-- 🏗️ **最新アーキテクチャ**: VNet、UNETR、SwinUNETRをサポート（マルチタスク学習にも対応）
-- 🔄 **転移学習**: 事前訓練済みモデルからのファインチューニング
-- 📊 **実データ対応**: BTCV等の実データセット、nnUNetフォーマットとの互換性
-- 🎯 **分類タスク対応**: SSL3D_classification用のデータセット生成をサポート
-- ⚡ **高速訓練**: 混合精度とスライディングウィンドウ推論による最適化
-
-## 🚀 クイックスタート
-
-### 1. 環境構築
+## Installation
 
 ```bash
-# リポジトリのクローン
-git clone https://github.com/your-username/FDSLxSDF4Seg.git
+git clone https://github.com/yamanoko/FDSLxSDF4Seg.git
 cd FDSLxSDF4Seg
 
-# 依存関係のインストール（uvパッケージマネージャーを推奨）
+# Install dependencies (uv package manager recommended)
 uv pip install -r requirements.txt
-# または通常のpip
+# Or with standard pip
 pip install -r requirements.txt
 ```
 
-### 2. 合成データセット生成（セグメンテーション用）
+### Requirements
 
-```bash
-# 基本的なデータセット生成
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --out_dir ./synthetic_dataset \
-    --num_samples 500 \
-    --num_val_samples 100 \
-    --num_visualize 10
-
-# ハイブリッドプリミティブを使用（プリミティブ × マッパー）
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --out_dir ./hybrid_dataset \
-    --D 96 --H 96 --W 96 \
-    --num_samples 500 \
-    --primitives sphere cylinder torus \
-    --sdf_mappers inverse_cube linear exponential
-
-# 変位関数を追加（プリミティブ × マッパー × 変位）
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --out_dir ./displaced_dataset \
-    --D 96 --H 96 --W 96 \
-    --num_samples 500 \
-    --primitives sphere cylinder \
-    --sdf_mappers inverse_cube linear \
-    --displacement_functions perlin turbulence sine
-
-# マルチタスク学習用データセット（shape, displacement, mapper を個別に予測）
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --out_dir ./multi_task_dataset \
-    --D 96 --H 96 --W 96 \
-    --num_samples 500 \
-    --primitives sphere cylinder torus \
-    --sdf_mappers inverse_cube linear \
-    --displacement_functions perlin turbulence \
-    --multi_task
-
-# nnUNetフォーマットで生成
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --nnunet_format \
-    --dataset_id 999 \
-    --dataset_name SDFSynthetic \
-    --D 96 --H 96 --W 96 \
-    --num_samples 500 \
-    --primitives sphere cylinder torus
-```
-
-### 3. 分類タスク用データセット生成（SSL3D_classification用）
-
-```bash
-# 分類用データセット（1サンプル = 1オブジェクト、Blosc2形式）
-uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
-    --out_dir ./cls_dataset \
-    --D 96 --H 96 --W 96 \
-    --samples_per_class 50 \
-    --primitives sphere cylinder torus cone \
-    --sdf_mappers inverse_cube linear \
-    --grid_scale 0.45 \
-    --dataset_name my_sdf_classification
-```
-
-### 3. 分類タスク用データセット生成（SSL3D_classification用）
-
-```bash
-# 分類用データセット（1サンプル = 1オブジェクト、Blosc2形式）
-uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
-    --out_dir ./cls_dataset \
-    --D 96 --H 96 --W 96 \
-    --samples_per_class 50 \
-    --primitives sphere cylinder torus cone \
-    --sdf_mappers inverse_cube linear \
-    --grid_scale 0.45 \
-    --dataset_name my_sdf_classification
-```
-
-### 4. モデル訓練
-
-```bash
-# VNetでの基本訓練
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./synthetic_dataset/data/data.json \
-    --model_name vnet \
-    --out_channel 5
-
-# SwinUNETRでの高精度訓練
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./synthetic_dataset/data/data.json \
-    --model_name swin_unetr \
-    --feature_size 48 \
-    --grid_size 96 96 96 \
-    --max_iterations 50000
-
-# マルチタスク訓練（UNETR/SwinUNETRのみ）
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./multi_task_dataset/data/data.json \
-    --model_name swin_unetr \
-    --multi_task \
-    --grid_size 96 96 96 \
-    --max_iterations 30000
-```
-
-## 📁 プロジェクト構造
-
-```
-FDSLxSDF4Seg/
-├── src/fdslxsdf4seg/
-│   ├── generate_sdf_dataset.py              # 合成データ生成（セグメンテーション用）
-│   ├── generate_sdf_dataset_classification.py  # 分類用データ生成（SSL3D互換）
-│   ├── training.py                          # モデル訓練
-│   ├── sdf_object.py                        # SDFObject基底クラス
-│   ├── basic_sdf.py                         # 基本プリミティブ
-│   ├── sdf_mapper.py                        # SDF → 強度値マッピング
-│   ├── displacement_functions.py            # 表面変形関数
-│   ├── hybrid_primitive.py                  # Primitive × Mapper
-│   ├── displaced_primitive.py               # Primitive × Displacement
-│   ├── primitive_registry.py                # 100+ プリミティブカタログ
-│   ├── sector_polygon_prism/               # 多角柱プリミティブ
-│   ├── star_polygon_prism/                 # 星型多角柱プリミティブ
-│   ├── onioned_prism/                      # 多層プリミティブ
-│   └── revolution/                         # 回転体プリミティブ
-├── outputs/                                 # 生成データの出力先
-├── training_output/                        # 訓練モデルの出力先
-├── visualize_output/                       # 可視化出力
-├── paper_figures/                          # 論文用図生成スクリプト
-├── BTCV/                                   # 実データセット（オプション）
-├── visualize_primitives.py                # プリミティブ可視化ツール
-├── requirements.txt                        # 依存関係
-├── pyproject.toml                         # プロジェクト設定
-├── README.md                              # このファイル
-├── generate_sdf_dataset.md                # データ生成の詳細ドキュメント
-├── training.md                            # 訓練の詳細ドキュメント
-├── SDF_CLASSIFICATION_DATASET.md          # 分類データセット仕様
-├── VISUALIZATION_README.md                # 可視化ツールガイド
-└── VARIATIONS_README.md                   # プリミティブバリエーション
-
-## 🛠️ 詳細ドキュメント
-
-- **[generate_sdf_dataset.md](generate_sdf_dataset.md)** - SDF合成データセット生成の詳細（セグメンテーション用）
-- **[training.md](training.md)** - 3Dセグメンテーションモデル訓練の詳細
-- **[SDF_CLASSIFICATION_DATASET.md](SDF_CLASSIFICATION_DATASET.md)** - 分類タスク用データセット仕様
-- **[VISUALIZATION_README.md](VISUALIZATION_README.md)** - プリミティブ可視化ツールの使い方
-- **[VARIATIONS_README.md](VARIATIONS_README.md)** - プリミティブバリエーション生成ガイド
-
-## 🎨 ハイブリッドプリミティブシステム
-
-このプロジェクトのコア機能は、**4層のプリミティブ構成システム**です：
-
-### 1. Base Primitives（基本プリミティブ）
-100種類以上の3D幾何学形状を提供：
-
-| カテゴリ | プリミティブ例 | 数 |
-|---------|--------------|-----|
-| **Basic** | Sphere, Cylinder, Torus, Cone, Octahedron | 9種類 |
-| **Sector Polygon Prisms** | Triangle/Square/Pentagon/Hexagon/Heptagon/Octagon/Nonagon Prism (各4種) | 28種類 |
-| **Star Polygon Prisms** | 5/6/7/8-Star Prism (各4種) | 16種類 |
-| **Onioned Sector Prisms** | 多層Triangle～Nonagon Prism (各4種) | 28種類 |
-| **Onioned Star Prisms** | 多層5/6/7/8-Star Prism (各4種) | 16種類 |
-| **Revolution Shapes** | Star Revolution (3/4/5-Star) | 3種類 |
-
-**使用例**：
-```bash
-# 特定のカテゴリから選択
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --categories basic sector_polygon \
-    --num_samples 500
-
-# 特定のプリミティブのみ
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --primitives sphere cylinder torus \
-    --num_samples 500
-```
-
-### 2. SDF Mappers（マッピング関数）
-SDF距離値を強度値に変換する関数：
-
-| Mapper | 数式 | 特徴 |
-|--------|------|------|
-| **inverse_cube** | 128/(|x|³+1) | 強い境界強調（デフォルト） |
-| **linear** | -x | シンプルな線形変換 |
-| **exponential** | 2^(-|x|) | 指数的減衰 |
-| **floor** | floor(-x/5)*16 | 階段状の強度 |
-| **modular** | (x mod 10)*12.8 | 周期的パターン |
-| **sinusoidal** | 64*sin(x/5)+64 | 正弦波パターン |
-
-**使用例**：
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --primitives sphere cylinder \
-    --sdf_mappers inverse_cube linear exponential \
-    --num_samples 500
-```
-→ 2 primitives × 3 mappers = 6クラス + 背景 = `--out_channel 7`
-
-### 3. Displacement Functions（変位関数）
-プリミティブ表面を変形させる関数：
-
-| Displacement | 説明 | パラメータ |
-|-------------|------|-----------|
-| **sine** / **sine_large** | 正弦波変位 | amplitude: 0.05/0.15 |
-| **perlin** / **perlin_fine** | パーリンノイズ | scale: 10.0/20.0 |
-| **turbulence** / **turbulence_strong** | 乱流効果 | amplitude: 0.1/0.2 |
-| **ridge** | リッジパターン | amplitude: 0.1 |
-| **sharp_max** | 鋭い凹凸 | amplitude: 0.1 |
-| **twist** | ねじれ変形 | angle: 45° |
-| **sawtooth** | のこぎり波 | amplitude: 0.1 |
-
-**使用例**：
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --primitives sphere cylinder \
-    --sdf_mappers inverse_cube linear \
-    --displacement_functions perlin turbulence sine \
-    --num_samples 500
-```
-→ (2×2) + (2×3×2) = 4 + 12 = 16クラス + 背景 = `--out_channel 17`
-
-### 4. Hybrid Combinations（ハイブリッド組み合わせ）
-上記を組み合わせることで、数百種類の独自クラスを生成可能：
-
-- **HybridPrimitive**: Primitive × Mapper（例: `Cylinder_inverse_cube`）
-- **DisplacedPrimitive**: Primitive × Displacement（例: `Sphere_disp_perlin`）
-- **HybridDisplacedPrimitive**: Primitive × Displacement × Mapper（例: `Cylinder_disp_turbulence_linear`）
-
-## 🎯 高度な機能
-
-### マルチタスク学習
-Shape、Displacement、Mapperを個別に予測：
-
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --multi_task \
-    --primitives sphere cylinder torus \
-    --sdf_mappers inverse_cube linear \
-    --displacement_functions perlin turbulence \
-    --num_samples 500
-
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./output/data/data.json \
-    --model_name swin_unetr \
-    --multi_task
-```
-
-### データ拡張としてのMapper/Displacement
-訓練時にランダムにMapper/Displacementを適用：
-
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --primitives sphere cylinder torus \
-    --sdf_mappers inverse_cube linear exponential \
-    --mapper_as_augmentation \
-    --num_samples 500
-```
-→ クラス数はプリミティブ数のみ（3 + 1 = 4クラス）、Mapperは訓練時に動的適用
-
-### nnUNetフォーマット対応
-nnUNetで直接使用可能なデータセット生成：
-
-```bash
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --nnunet_format \
-    --dataset_id 999 \
-    --dataset_name MySDFDataset \
-    --primitives sphere cylinder \
-    --num_samples 500
-```
-
-## 📊 サポートするプリミティブ
-
-詳細は前述の「ハイブリッドプリミティブシステム」セクションを参照してください。100種類以上のプリミティブを利用可能です。
-
-### プリミティブ可視化
-
-```bash
-# 全プリミティブの可視化
-uv run python visualize_primitives.py
-
-# 変位関数適用後の可視化
-uv run python visualize_primitives.py --displaced --3d \
-    --displaced_primitives Sphere Cylinder \
-    --displacement_functions perlin turbulence
-
-# 利用可能な変位関数一覧
-uv run python visualize_primitives.py --list_displacements
-
-# バリエーション生成
-uv run python visualize_primitives.py --variations \
-    --variation_primitive Cylinder --num_variations 9
-```
-
-### プリミティブ選択オプション
-
-- **カテゴリ指定**:
-  ```bash
-  uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-      --categories basic sector_polygon star_polygon
-  ```
-
-- **個別指定**:
-  ```bash
-  uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-      --primitives sphere cylinder torus cone
-  ```
-
-- **クラス数指定**:
-  ```bash
-  uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-      --num_classes 10  # ランダムに10個選択
-  ```
-
-### データ生成のコマンドラインオプション（主要なもの）
-
-| オプション | 説明 | デフォルト | 例 |
-|-----------|------|-----------|-----|
-| `--out_dir` | 出力ディレクトリ | 自動生成 | `./my_dataset` |
-| `--D`, `--H`, `--W` | グリッドサイズ | 64 | `--D 128 --H 128 --W 128` |
-| `--num_samples` | 訓練サンプル数 | 200 | `--num_samples 1000` |
-| `--num_val_samples` | 検証サンプル数 | 0 | `--num_val_samples 100` |
-| `--min_objects` | 最小オブジェクト数 | 2 | `--min_objects 1` |
-| `--max_objects` | 最大オブジェクト数 | 5 | `--max_objects 10` |
-| `--primitives` | 使用プリミティブ | デフォルト4種 | `--primitives sphere cylinder` |
-| `--categories` | プリミティブカテゴリ | - | `--categories basic revolution` |
-| `--sdf_mappers` | SDFマッパー | inverse_cube | `--sdf_mappers inverse_cube linear` |
-| `--displacement_functions` | 変位関数 | なし | `--displacement_functions perlin sine` |
-| `--multi_task` | マルチタスク学習 | False | `--multi_task` |
-| `--mapper_as_augmentation` | Mapperを拡張として使用 | False | `--mapper_as_augmentation` |
-| `--nnunet_format` | nnUNet形式で出力 | False | `--nnunet_format` |
-| `--seed` | 乱数シード | None | `--seed 42` |
-| `--num_visualize` | 可視化サンプル数 | 0 | `--num_visualize 10` |
-
-詳細は [generate_sdf_dataset.md](generate_sdf_dataset.md) を参照してください。
-
-## 🤖 サポートモデル
-
-| モデル | 特徴 | 用途 | メモリ要件 |
-|--------|------|------|------------|
-| **VNet** | V字型3D CNN | 一般的なセグメンテーション | 低 |
-| **UNETR** | Vision Transformer + CNN | 高精度セグメンテーション | 中 |
-| **SwinUNETR** | Swin Transformer | 最高精度セグメンテーション | 高 |
-
-## 📈 ベンチマーク性能
-
-### 合成データ（SDF）
-- **データサイズ**: 64³ / 96³
-- **クラス数**: 4～20+クラス（プリミティブ × Mapper × Displacement による）
-- **期待Dice係数**: 0.85-0.95
-- **訓練時間**: 1-2時間（RTX 3080）
-
-### 実データ（BTCV）
-- **データサイズ**: 96³
-- **クラス数**: 14クラス
-- **期待Dice係数**: 0.75-0.85
-- **訓練時間**: 8-12時間（RTX 3080）
-
-### マルチタスク学習
-- **タスク数**: 3（shape, displacement, mapper）
-- **期待Dice係数**: タスクごとに0.80-0.90
-- **訓練時間**: 2-3時間（RTX 3080）
-
-## 🔧 システム要件
-
-### 最小要件
 - Python 3.8+
-- PyTorch 1.12+
-- CUDA対応GPU（4GB VRAM以上）
+- PyTorch 1.12+ with CUDA
+- MONAI, nibabel, plotly, kaleido, numpy, tqdm, blosc2
 
-### 推奨要件
-- Python 3.9+
-- PyTorch 2.0+
-- CUDA対応GPU（16GB VRAM以上）
-- SSDストレージ
+---
 
-### 依存関係
-```
-torch>=1.12.0
-monai>=1.0.0
-nibabel>=3.2.0
-plotly>=5.0.0
-kaleido>=0.2.0
-numpy>=1.21.0
-tqdm>=4.60.0
-blosc2>=2.0.0
-```
+## Quick Start
 
-推奨: `uv` パッケージマネージャーを使用（高速・再現性の高い依存関係管理）
+### 1. Generate Synthetic Dataset
 
-## 🎯 使用例とユースケース
+To generate the dataset used in the paper, run with the following options:
 
-### 研究・開発
-- 新しいセグメンテーションアルゴリズムの評価
-- 合成データでの事前訓練 → 実データでのファインチューニング
-- データ拡張手法の検証
-- マルチタスク学習の研究
-
-### 教育
-- 3Dセグメンテーションの学習教材
-- 深層学習の実践的な演習
-- SDFとプリミティブの理解
-- 幾何学形状とDeep Learningの関係性
-
-### プロトタイピング
-- 新しいアーキテクチャの迅速な検証
-- ハイパーパラメータ最適化
-- ベースライン性能の確立
-- Mapper/Displacement関数の効果検証
-
-### 段階的学習戦略
-1. **基本プリミティブ**: 最も単純なケースから開始
-   ```bash
-   uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-       --primitives sphere --max_objects 3
-   ```
-
-2. **ハイブリッドプリミティブ**: Mapperを追加して複雑度を増加
-   ```bash
-   uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-       --primitives sphere cylinder \
-       --sdf_mappers inverse_cube linear --max_objects 5
-   ```
-
-3. **変位プリミティブ**: Displacementで表面を変形
-   ```bash
-   uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-       --primitives sphere cylinder torus \
-       --sdf_mappers inverse_cube linear \
-       --displacement_functions perlin turbulence --max_objects 5
-   ```
-
-4. **マルチタスク学習**: 最終的な複雑なタスク
-   ```bash
-   uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-       --primitives sphere cylinder torus cone \
-       --sdf_mappers inverse_cube linear exponential \
-       --displacement_functions perlin turbulence sine \
-       --multi_task --max_objects 8
-   ```
-
-## 📝 ワークフロー例
-
-### 1. 合成データでの事前訓練（ハイブリッドプリミティブ使用）
 ```bash
-# Step 1: ハイブリッド合成データ生成
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
     --out_dir ./pretraining_data \
-    --num_samples 1000 \
     --D 96 --H 96 --W 96 \
-    --primitives sphere cylinder torus cone \
-    --sdf_mappers inverse_cube linear exponential \
-    --displacement_functions perlin turbulence
+    --num_samples 5000 \
+    --min_objects 20 --max_objects 20 \
+    --num_classes 109 \
+    --sdf_mappers exponential_base_1.5 exponential_base_2.0 floor_width_0.5 floor_width_1.0 inverse_cube linear_slope_10.0 modular_10 modular_5 sinusoidal_wavelength_1.0 sinusoidal_wavelength_3.0 \
+    --displacement_functions perlin_more_fine perlin_fine turbulence ridge ridge_coarse sharpmax sharpmax_fine twisted_x sawtooth \
+    --mapper_as_augmentation \
+    --displacement_as_augmentation
+```
 
-# Step 2: 事前訓練
-uv run python src/fdslxsdf4seg/training.py \
+This generates 5,000 training samples at 96³ resolution using all 109 primitive classes, with 10 SDF mappers and 9 displacement functions applied as augmentation. Each sample contains 20 objects.
+
+> **Note:** Running the script without these options uses much smaller defaults (64³ resolution, 200 samples, 2–5 objects, 4 primitives, 1 mapper, no displacement). The full option set above is required to reproduce the paper's configuration.
+
+### 2. Pre-train a Model
+
+```bash
+python src/fdslxsdf4seg/training.py \
     --data_json_path ./pretraining_data/data/data.json \
     --model_name swin_unetr \
-    --out_channel 17 \
-    --max_iterations 30000 \
-    --out_dir ./pretrained_models
+    --out_channel 110
 ```
 
-### 2. 実データでのファインチューニング
+`--out_channel` = number of classes + 1 (background). With 109 primitive classes, use `--out_channel 110`.
+
+### 3. Fine-tune on Real Data
+
 ```bash
-# Step 3: ファインチューニング
-uv run python src/fdslxsdf4seg/training.py \
+python src/fdslxsdf4seg/training.py \
     --data_json_path ./BTCV/dataset.json \
     --model_name swin_unetr \
     --is_real_data \
-    --pretrained_model ./pretrained_models/best_metric_model.pth \
-    --pretraining_out_channel 17 \
+    --pretrained_model ./training_output/swin_unetr/model_best.pth \
+    --pretraining_out_channel 110 \
+    --out_channel 14
+```
+
+---
+
+## Synthetic Data Generation
+
+### Paper Configuration
+
+The paper uses the following configuration. **These options must be explicitly specified** — the script's built-in defaults are much smaller (see [Script Defaults](#script-defaults) below).
+
+| Parameter | Paper Setting | Description |
+|-----------|---------------|-------------|
+| `--D`, `--H`, `--W` | 96 | Volume resolution |
+| `--num_samples` | 5000 | Number of training samples |
+| `--min_objects` / `--max_objects` | 20 / 20 | Objects placed per sample |
+| `--num_classes` | 109 | Number of primitive classes (all available) |
+| `--sdf_mappers` | 10 mappers | All available mappers (see below) |
+| `--displacement_functions` | 9 displacements | All available displacements (see below) |
+| `--mapper_as_augmentation` | Enabled | Mappers used as augmentation, not separate classes |
+| `--displacement_as_augmentation` | Enabled | Displacements used as augmentation, not separate classes |
+
+This configuration uses mappers and displacements as **augmentation** — they add visual diversity to the data but do not increase the class count. The resulting dataset has **109 classes + 1 background = 110 output channels**.
+
+<details>
+<summary>SDF mappers used in the paper (10)</summary>
+
+`exponential_base_1.5`, `exponential_base_2.0`, `floor_width_0.5`, `floor_width_1.0`, `inverse_cube`, `linear_slope_10.0`, `modular_10`, `modular_5`, `sinusoidal_wavelength_1.0`, `sinusoidal_wavelength_3.0`
+
+</details>
+
+<details>
+<summary>Displacement functions used in the paper (9)</summary>
+
+`perlin_more_fine`, `perlin_fine`, `turbulence`, `ridge`, `ridge_coarse`, `sharpmax`, `sharpmax_fine`, `twisted_x`, `sawtooth`
+
+</details>
+
+### Script Defaults
+
+Running the script without explicit options uses these minimal defaults:
+
+| Parameter | Script Default | Paper Setting |
+|-----------|---------------|---------------|
+| `--D`, `--H`, `--W` | 64 | 96 |
+| `--num_samples` | 200 | 5000 |
+| `--min_objects` / `--max_objects` | 2 / 5 | 20 / 20 |
+| `--primitives` | 4 (sphere, cylinder, torus, cone) | — |
+| `--num_classes` | None | 109 |
+| `--sdf_mappers` | None (inverse_cube only) | All 10 mappers |
+| `--displacement_functions` | None (disabled) | All 9 displacements |
+| `--mapper_as_augmentation` | Off | On |
+| `--displacement_as_augmentation` | Off | On |
+
+### Customizing Generation
+
+#### Fewer Classes
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./small_dataset \
+    --num_classes 10
+```
+Randomly selects 10 out of 109 primitive classes. → `--out_channel 11`
+
+#### Specific Primitives
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./custom_dataset \
+    --primitives sphere cylinder torus cone
+```
+→ 4 classes + background = `--out_channel 5`
+
+#### By Category
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./category_dataset \
+    --categories basic revolution
+```
+
+#### Mappers/Displacements as Separate Classes (Not Augmentation)
+
+Without `--mapper_as_augmentation` / `--displacement_as_augmentation`, each combination of primitive × mapper (× displacement) becomes a distinct class:
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./hybrid_dataset \
+    --primitives sphere cylinder torus \
+    --sdf_mappers inverse_cube linear_slope_10.0 \
+    --displacement_functions perlin_fine turbulence
+```
+→ (3 primitives × 2 mappers) + (3 primitives × 2 displacements × 2 mappers) = 6 + 12 = **18 classes** → `--out_channel 19`
+
+#### Multi-Task Dataset
+
+Generates separate label channels for shape, displacement, and mapper:
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./multi_task_dataset \
+    --primitives sphere cylinder torus \
+    --sdf_mappers inverse_cube linear_slope_10.0 \
+    --displacement_functions perlin_fine turbulence \
+    --multi_task
+```
+
+Cannot be combined with `--mapper_as_augmentation` or `--displacement_as_augmentation`.
+
+#### nnUNet Format
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./outputs \
+    --nnunet_format \
+    --dataset_id 999 \
+    --dataset_name SDFSynthetic
+```
+→ Creates `Dataset999_SDFSynthetic/` (training) and `Dataset1000_SDFSynthetic_Val/` (validation).
+
+#### Validation Samples
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./dataset \
+    --num_val_samples 1000
+```
+
+#### Visualization
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset.py \
+    --out_dir ./dataset \
+    --num_visualize 10
+```
+
+### All Generation Options
+
+| Option | Script Default | Description |
+|--------|---------------|-------------|
+| `--out_dir` | Auto-generated | Output directory |
+| `--D`, `--H`, `--W` | 64 | Volume grid size |
+| `--num_samples` | 200 | Training samples |
+| `--num_val_samples` | 0 | Validation samples |
+| `--min_objects` / `--max_objects` | 2 / 5 | Objects per sample |
+| `--num_classes` | None | Randomly select N classes from available primitives |
+| `--primitives` | 4 basic shapes | Specific primitive names |
+| `--categories` | — | Select by category (overrides `--primitives`) |
+| `--sdf_mappers` | None (inverse_cube) | SDF mapper names |
+| `--displacement_functions` | None (disabled) | Displacement function names |
+| `--mapper_as_augmentation` | Off | Mappers as augmentation (no class increase) |
+| `--displacement_as_augmentation` | Off | Displacements as augmentation (no class increase) |
+| `--multi_task` | Off | Multi-task labels (shape/displacement/mapper) |
+| `--nnunet_format` | Off | nnUNet output format |
+| `--dataset_id` | 999 | Dataset ID for nnUNet format |
+| `--seed` | None | Random seed |
+| `--num_visualize` | 0 | Number of samples to visualize |
+
+See [generate_sdf_dataset.md](generate_sdf_dataset.md) for full details.
+
+---
+
+## Classification Dataset Generation
+
+Generate single-object volumes in Blosc2 format for 3D classification tasks:
+
+```bash
+python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
+    --out_dir ./cls_dataset \
+    --D 96 --H 96 --W 96 \
+    --samples_per_class 50 \
+    --primitives sphere cylinder torus cone \
+    --sdf_mappers inverse_cube linear_slope_10.0 \
+    --dataset_name my_sdf_classification
+```
+→ 4 primitives × 2 mappers = 8 classes × 50 samples = 400 total
+
+See [SDF_CLASSIFICATION_DATASET.md](SDF_CLASSIFICATION_DATASET.md) for full details.
+
+---
+
+## Training
+
+### Supported Models
+
+| Model | Description | Memory |
+|-------|-------------|--------|
+| **VNet** | V-shaped 3D CNN | Low |
+| **UNETR** | Vision Transformer + CNN decoder | Medium |
+| **SwinUNETR** | Swin Transformer-based | High |
+
+### Pre-training on Synthetic Data
+
+```bash
+python src/fdslxsdf4seg/training.py \
+    --data_json_path ./pretraining_data/data/data.json \
+    --model_name swin_unetr \
+    --out_channel 110 \
+    --max_iterations 30000
+```
+
+### Fine-tuning on Real Data
+
+```bash
+python src/fdslxsdf4seg/training.py \
+    --data_json_path ./BTCV/dataset.json \
+    --model_name swin_unetr \
+    --is_real_data \
+    --pretrained_model ./training_output/swin_unetr/model_best.pth \
+    --pretraining_out_channel 110 \
     --out_channel 14 \
     --max_iterations 20000
 ```
 
-### 3. マルチタスク学習ワークフロー
-```bash
-# Step 1: マルチタスクデータセット生成
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --out_dir ./multi_task_data \
-    --num_samples 1000 \
-    --D 96 --H 96 --W 96 \
-    --primitives sphere cylinder torus \
-    --sdf_mappers inverse_cube linear \
-    --displacement_functions perlin turbulence sine \
-    --multi_task
+### Multi-Task Training (UNETR/SwinUNETR only)
 
-# Step 2: マルチタスク訓練
-uv run python src/fdslxsdf4seg/training.py \
-    --data_json_path ./multi_task_data/data/data.json \
+```bash
+python src/fdslxsdf4seg/training.py \
+    --data_json_path ./multi_task_dataset/data/data.json \
     --model_name swin_unetr \
-    --multi_task \
-    --max_iterations 30000
+    --multi_task
 ```
+`--out_channel` is automatically determined from `data.json`.
 
-### 4. 分類タスクワークフロー（SSL3D_classification用）
-```bash
-# Step 1: 分類用データセット生成
-uv run python src/fdslxsdf4seg/generate_sdf_dataset_classification.py \
-    --out_dir ./classification_data \
-    --D 96 --H 96 --W 96 \
-    --samples_per_class 100 \
-    --primitives sphere cylinder torus cone \
-    --sdf_mappers inverse_cube linear \
-    --grid_scale 0.45 \
-    --dataset_name sdf_classification
+### Training Options
 
-# Step 2: SSL3D_classificationで訓練
-# （別途SSL3D_classificationリポジトリで実行）
-```
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--data_json_path` | (required) | Path to dataset JSON |
+| `--model_name` | (required) | `vnet`, `unetr`, or `swin_unetr` |
+| `--out_channel` | 14 | Number of output channels (classes + background) |
+| `--grid_size` | 96 96 96 | Input volume size |
+| `--batch_size` | 1 | Batch size |
+| `--max_iterations` | 30000 | Training iterations |
+| `--learning_rate` | 1e-4 | Learning rate |
+| `--pretrained_model` | — | Path to pre-trained model for fine-tuning |
+| `--pretraining_out_channel` | 14 | Output channels of the pre-trained model |
+| `--is_real_data` | Off | Use real data transforms |
+| `--multi_task` | Off | Multi-task learning mode |
+| `--gradient_accumulation_steps` | 1 | Gradient accumulation |
+| `--use_checkpoint` | Off | Gradient checkpointing (reduces memory) |
+| `--use_ce_loss` | Off | CrossEntropyLoss instead of DiceCELoss |
 
-## 🔍 トラブルシューティング
-
-### よくある問題と解決策
-
-#### メモリ不足エラー
-```bash
-# 解決策: バッチサイズとグリッドサイズを減らす
-uv run python src/fdslxsdf4seg/training.py ... \
-    --batch_size 1 --grid_size 64 64 64
-```
-
-#### クラス数の不一致エラー
-```bash
-# 問題: --out_channel と実際のクラス数が一致しない
-# 解決策: generation_log.txt でクラス数を確認
-cat ./output_dir/generation_log.txt | grep "Total classes"
-
-# または data.json から確認
-python -c "import json; print(len(json.load(open('data.json'))['labels']))"
-```
-
-#### 収束しない
-```bash
-# 解決策: 学習率を下げて長時間訓練
-uv run python src/fdslxsdf4seg/training.py ... --max_iterations 50000
-```
-
-#### 可視化エラー
-```bash
-# 解決策: 可視化用パッケージをインストール
-uv pip install kaleido
-# または
-pip install kaleido
-```
-
-#### Displacement/Mapper名のエラー
-```bash
-# 利用可能なDisplacement関数を確認
-uv run python visualize_primitives.py --list_displacements
-
-# 利用可能なMapper一覧（コード内で定義）:
-# inverse_cube, linear, exponential, floor, modular, sinusoidal
-```
-
-#### マルチタスク学習で通常データセットを使用
-```bash
-# 問題: --multi_task フラグを使用したがデータセットが通常形式
-# 解決策: データセット生成時にも --multi_task を指定
-uv run python src/fdslxsdf4seg/generate_sdf_dataset.py \
-    --multi_task ...
-```
-
-詳細なトラブルシューティングは各ドキュメントを参照してください。
-
-## 🤝 コントリビューション
-
-プロジェクトへの貢献を歓迎します！以下の方法で貢献できます：
-
-1. **バグレポート**: Issuesでバグを報告
-2. **機能提案**: 新機能のアイデアを提案
-3. **プルリクエスト**: コードの改善を提案
-4. **ドキュメント改善**: 説明の追加・修正
-
-### 開発の流れ
-1. リポジトリをフォーク
-2. 機能ブランチを作成（`git checkout -b feature/amazing-feature`）
-3. 変更をコミット（`git commit -m 'Add amazing feature'`）
-4. ブランチにプッシュ（`git push origin feature/amazing-feature`）
-5. プルリクエストを作成
-
-## 📄 ライセンス
-
-このプロジェクトは [MIT License](LICENSE) の下で公開されています。
-
-## 📚 引用
-
-研究でこのプロジェクトを使用される場合は、以下の形式での引用をお願いします：
-
-```bibtex
-@software{fdslxsdf4seg2025,
-  title={FDSLxSDF4Seg: Foundation Dataset for Segmentation Learning with SDFs},
-  author={Your Name},
-  year={2025},
-  url={https://github.com/your-username/FDSLxSDF4Seg}
-}
-```
-
-## 📞 サポート
-
-- 📧 **Email**: your.email@example.com
-- 🐛 **Issues**: [GitHub Issues](https://github.com/your-username/FDSLxSDF4Seg/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/your-username/FDSLxSDF4Seg/discussions)
-
-## 🔗 関連リンク
-
-- [MONAI Framework](https://monai.io/)
-- [PyTorch](https://pytorch.org/)
-- [NiBabel](https://nipy.org/nibabel/)
-- [Plotly](https://plotly.com/python/)
+See [training.md](training.md) for full details.
 
 ---
 
-⭐ このプロジェクトが役に立った場合は、スターをつけていただけると嬉しいです！
+## Output Formats
+
+### MONAI Decathlon Format (Default)
+
+```
+output_directory/
+├── generation_log.txt
+├── data/
+│   ├── data.json           # Dataset metadata
+│   ├── image/              # Intensity volumes (.nii.gz)
+│   └── label/              # Segmentation masks (.nii.gz)
+└── visualizations/         # (if --num_visualize > 0)
+```
+
+### nnUNet Format
+
+```
+Dataset999_SDFSynthetic/
+├── dataset.json
+├── imagesTr/               # case_XXXXX_0000.nii.gz
+├── labelsTr/               # case_XXXXX.nii.gz
+└── generation_log.txt
+
+Dataset1000_SDFSynthetic_Val/  # (if --num_val_samples > 0)
+```
+
+### Classification Format (Blosc2)
+
+```
+<data_root_dir>/
+├── nnUNetResEncUNetLPlans_3d_fullres/
+│   ├── case_00000.b2nd
+│   └── ...
+├── labelsTr.json
+├── splits_final.json
+├── <dataset_name>.yaml
+└── generation_log.txt
+```
+
+---
+
+## Visualization
+
+```bash
+# Visualize all primitives (2D slices)
+python visualize_primitives.py
+
+# 3D visualization of displaced primitives
+python visualize_primitives.py --displaced --3d \
+    --displaced_primitives Sphere Cylinder \
+    --displacement_functions perlin_fine turbulence
+
+# List available displacement functions
+python visualize_primitives.py --list_displacements
+
+# Primitive variation analysis
+python visualize_primitives.py --variations \
+    --variation_primitive Cylinder --num_variations 9
+```
+
+See [VISUALIZATION_README.md](VISUALIZATION_README.md) and [VARIATIONS_README.md](VARIATIONS_README.md) for details.
+
+---
+
+## Project Structure
+
+```
+FDSLxSDF4Seg/
+├── src/fdslxsdf4seg/
+│   ├── generate_sdf_dataset.py              # Segmentation dataset generation
+│   ├── generate_sdf_dataset_classification.py  # Classification dataset generation
+│   ├── training.py                          # Model training
+│   ├── sdf_object.py                        # SDFObject base class
+│   ├── basic_sdf.py                         # Basic primitives (Sphere, Torus, etc.)
+│   ├── sdf_mapper.py                        # SDF → intensity mapping
+│   ├── displacement_functions.py            # Surface deformation functions
+│   ├── hybrid_primitive.py                  # Primitive × Mapper combinations
+│   ├── displaced_primitive.py               # Primitive × Displacement combinations
+│   ├── primitive_registry.py                # 109 primitives catalog
+│   ├── sector_polygon_prism/               # Polygon prism variants
+│   ├── star_polygon_prism/                 # Star polygon prism variants
+│   ├── onioned_prism/                      # Multi-layered primitives
+│   └── revolution/                         # Revolution shapes
+├── outputs/                                 # Generated data
+├── training_output/                        # Trained models
+├── visualize_output/                       # Visualizations
+├── paper_figures/                          # Paper figure scripts
+└── BTCV/                                   # Real dataset (optional)
+```
