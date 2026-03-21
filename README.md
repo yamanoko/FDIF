@@ -7,8 +7,8 @@ FDIF consistently outperforms both training from scratch and PrimGeoSeg across m
 ## Installation
 
 ```bash
-git clone https://github.com/yamanoko/FDSLxSDF4Seg.git
-cd FDSLxSDF4Seg
+git clone https://github.com/yamanoko/FDIF.git
+cd FDIF
 
 # Install dependencies (uv package manager recommended)
 uv pip install -r requirements.txt
