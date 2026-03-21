@@ -4,6 +4,11 @@ Official implementation of **FDIF** (**F**ormula-**D**riven supervised learning 
 
 FDIF consistently outperforms both training from scratch and PrimGeoSeg across multiple segmentation benchmarks and architectures, achieving performance comparable to self-supervised methods that require large-scale real data.
 
+<p align="center">
+  <img src="figures/fig1.png" width="100%">
+</p>
+<p align="center"><b>Figure 1.</b> Overview of FDIF.</p>
+
 ## Installation
 
 ```bash
@@ -73,6 +78,11 @@ python src/fdslxsdf4seg/training.py \
 ---
 
 ## Synthetic Data Generation
+
+<p align="center">
+  <img src="figures/fig2.png" width="100%">
+</p>
+<p align="center"><b>Figure 2.</b> Synthetic data generation pipeline of FDIF.</p>
 
 ### Paper Configuration
 
