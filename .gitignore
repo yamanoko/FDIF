@@ -29,3 +29,9 @@ intro.md
 
 # AI development instructions
 .github/copilot-instructions.md
+
+# MedShapeNet cache (downloaded meshes and baked SDF voxels)
+cache/
+medshapenetcore_npz/
+medshapenetcore_saved/
+stls/

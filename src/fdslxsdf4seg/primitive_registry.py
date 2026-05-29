@@ -543,6 +543,27 @@ DEFAULT_PRIMITIVES = [
 ]
 
 
+# MedShapeNet primitives and categories are merged in lazily so that
+# importing this module does not pull in numpy/torch-heavy mesh code
+# unless the user actually opts into MedShapeNet data.
+try:
+    from fdslxsdf4seg.medshapenet.registry import inject as _inject_medshapenet
+
+    _inject_medshapenet(ALL_PRIMITIVES, PRIMITIVE_CATEGORIES)
+except Exception as _e:  # noqa: BLE001
+    # MedShapeNet is optional. If its module fails to import for any
+    # reason (missing optional deps like pysdf), keep going with the
+    # synthetic primitives only.
+    import warnings
+
+    warnings.warn(
+        f"MedShapeNet primitives unavailable: {_e!r}. "
+        "Install optional deps (`pip install MedShapeNetCore trimesh rtree pyyaml`) "
+        "to enable msn_* primitives.",
+        stacklevel=1,
+    )
+
+
 def get_primitive_choices():
     """Get all available primitive choices for argument parser."""
     return list(ALL_PRIMITIVES.keys())

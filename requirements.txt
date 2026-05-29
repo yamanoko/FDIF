@@ -110,3 +110,10 @@ webcolors==24.11.1
 webencodings==0.5.1
 websocket-client==1.8.0
 widgetsnbextension==4.0.14
+
+# MedShapeNet integration (cross-platform: Windows + Linux)
+# Uses trimesh's pure-Python signed_distance — no C++ compiler needed.
+MedShapeNetCore
+trimesh
+rtree
+pyyaml
