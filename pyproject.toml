@@ -20,6 +20,21 @@ dependencies = [
     "kaleido>=1.0.0",
     "blosc2>=4.0.0",
     "einops>=0.8.2",
+    # MedShapeNet (MSN) integration — cross-platform (Windows + Linux).
+    # Uses trimesh's pure-Python signed_distance (rtree backend), no C++ compiler needed.
+    "MedShapeNetCore",
+    "trimesh",
+    "rtree",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Same set as the MSN deps above, kept as an extra for explicit `pip install -e ".[msn]"`.
+msn = [
+    "MedShapeNetCore",
+    "trimesh",
+    "rtree",
+    "pyyaml",
 ]
 
 [build-system]
