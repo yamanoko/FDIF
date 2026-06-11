@@ -21,8 +21,13 @@ dependencies = [
     "blosc2>=4.0.0",
     "einops>=0.8.2",
     # MedShapeNet (MSN) integration — cross-platform (Windows + Linux).
-    # Uses trimesh's pure-Python signed_distance (rtree backend), no C++ compiler needed.
+    # SDF baking uses NVIDIA Warp's GPU mesh BVH (warp-lang: prebuilt
+    # wheels, no C++ compiler; CUDA + CPU); scipy provides the flood-fill
+    # solidifier for non-watertight meshes. trimesh/rtree are kept as the
+    # legacy CPU reference backend.
     "MedShapeNetCore",
+    "warp-lang>=1.0.0",
+    "scipy>=1.10.0",
     "trimesh",
     "rtree",
     "pyyaml",
@@ -32,6 +37,8 @@ dependencies = [
 # Same set as the MSN deps above, kept as an extra for explicit `pip install -e ".[msn]"`.
 msn = [
     "MedShapeNetCore",
+    "warp-lang>=1.0.0",
+    "scipy>=1.10.0",
     "trimesh",
     "rtree",
     "pyyaml",
