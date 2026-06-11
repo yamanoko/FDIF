@@ -316,6 +316,21 @@ def _orient_faces_outward(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return faces
 
 
+def _drop_out_of_range_faces(faces: np.ndarray, n_verts: int) -> np.ndarray:
+    """Return `faces` with any out-of-range (index >= n_verts or < 0) row
+    removed. Raises ValueError if nothing valid remains."""
+    valid = (faces >= 0).all(axis=1) & (faces < n_verts).all(axis=1)
+    if valid.all():
+        return faces
+    faces = np.ascontiguousarray(faces[valid])
+    if len(faces) == 0:
+        raise ValueError(
+            "mesh has no valid faces after dropping out-of-range indices "
+            f"(n_verts={n_verts})"
+        )
+    return faces
+
+
 def _compute_sdf_warp(
     verts: np.ndarray,
     faces: np.ndarray,
@@ -340,6 +355,13 @@ def _compute_sdf_warp(
     device = "cuda" if wp.get_cuda_device_count() > 0 else "cpu"
 
     normalized = _normalize_mesh(verts.astype(np.float32, copy=False))
+    # Defense in depth: Warp's wp.Mesh does no bounds checking and reads
+    # points[indices[i]] out of range for any face that indexes a missing
+    # vertex, causing an illegal memory access (CUDA error 700) that
+    # poisons the whole CUDA context. Loader-level sanitization should
+    # already have stripped these, but guard here too in case bake() is
+    # fed raw meshes directly.
+    faces = _drop_out_of_range_faces(faces, normalized.shape[0])
     # floodfill ignores orientation; the surface-sign modes need it outward.
     if sign_mode == "floodfill":
         faces_out = faces.astype(np.int64, copy=False)

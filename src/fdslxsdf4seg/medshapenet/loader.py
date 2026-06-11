@@ -48,6 +48,33 @@ _FLAT_KEY = "_flat"  # cache subdir name for flat datasets
 
 
 # ----------------------------------------------------------------------
+# Mesh sanitization
+# ----------------------------------------------------------------------
+
+def _drop_out_of_range_faces(
+    faces: np.ndarray, n_verts: int
+) -> Optional[np.ndarray]:
+    """Drop faces that index a vertex outside [0, n_verts).
+
+    Some MedShapeNet meshes (notably in the mixed `msn_all` pool) carry
+    faces whose indices exceed the vertex count. Warp's `wp.Mesh` does no
+    bounds checking and reads `points[indices[i]]` out of range while
+    building its BVH on the GPU, triggering an *illegal memory access*
+    (CUDA error 700) that corrupts the whole CUDA context. We strip those
+    faces here so the bad index never reaches the GPU.
+
+    Returns the filtered faces, or None if no valid face remains.
+    """
+    valid = (faces >= 0).all(axis=1) & (faces < n_verts).all(axis=1)
+    if valid.all():
+        return faces
+    faces = faces[valid]
+    if len(faces) == 0:
+        return None
+    return np.ascontiguousarray(faces)
+
+
+# ----------------------------------------------------------------------
 # Network / pickle plumbing
 # ----------------------------------------------------------------------
 
@@ -167,6 +194,9 @@ def _read_extracted_mesh(path: Path) -> Optional[Mesh]:
         return None
     if len(v) == 0 or len(f) == 0:
         return None
+    f = _drop_out_of_range_faces(f, len(v))
+    if f is None:
+        return None
     return (v, f)
 
 
@@ -213,6 +243,9 @@ def _yield_vf_pairs(node):
         if v.ndim != 2 or v.shape[1] != 3 or f.ndim != 2 or f.shape[1] != 3:
             continue
         if len(v) == 0 or len(f) == 0:
+            continue
+        f = _drop_out_of_range_faces(f, len(v))
+        if f is None:
             continue
         yield i, v, f
 
